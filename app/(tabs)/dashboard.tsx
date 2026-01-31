@@ -1,6 +1,7 @@
 import { useFocusEffect } from "@react-navigation/native";
+import { router } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { getStrategyStats, getTradeStatsForDay } from "~/db/db";
 
 function todayKey() {
@@ -42,7 +43,6 @@ export default function DashboardTab() {
   const [todayTotalR, setTodayTotalR] = useState(0);
   const [todayWinRate, setTodayWinRate] = useState(0);
 
-  // from getStrategyStats(): { [strategyId]: { strategyName, tradeCount, winRate, avgR, totalR, ... } }
   const [statsById, setStatsById] = useState<Record<string, any>>({});
 
   const refresh = useCallback(async () => {
@@ -136,10 +136,24 @@ export default function DashboardTab() {
       contentContainerStyle={{
         padding: 16,
         gap: 12,
-        paddingBottom: 160, // ✅ more space so it scrolls past the bottom tabs
+        paddingBottom: 160,
       }}
     >
-      <Text style={{ fontSize: 28, fontWeight: "900" }}>Stats</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <Text style={{ fontSize: 28, fontWeight: "900", flex: 1 }}>Stats</Text>
+
+        <Pressable
+          onPress={() => router.push("/insights")}
+          style={{
+            paddingVertical: 10,
+            paddingHorizontal: 12,
+            borderRadius: 12,
+            backgroundColor: "#111",
+          }}
+        >
+          <Text style={{ color: "white", fontWeight: "900" }}>Insights</Text>
+        </Pressable>
+      </View>
 
       {/* Today Summary */}
       <View
