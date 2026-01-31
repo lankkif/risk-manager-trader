@@ -51,6 +51,17 @@ export default function TabLayout() {
         }}
       />
 
+      {/* ✅ NEW: Closeout tab */}
+      <Tabs.Screen
+        name="closeout"
+        options={{
+          title: "Closeout",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="checkmark-done" size={size} color={color} />
+          ),
+        }}
+      />
+
       <Tabs.Screen
         name="dashboard"
         options={{

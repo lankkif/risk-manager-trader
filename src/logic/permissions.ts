@@ -1,8 +1,8 @@
 import {
-    getSetting,
-    getTradeStatsForDay,
-    hasDailyCloseout,
-    hasDailyPlan,
+  getSetting,
+  getTradeStatsForDay,
+  hasDailyCloseout,
+  hasDailyPlan,
 } from "../db/db";
 
 export type GateResult = {
@@ -13,6 +13,9 @@ export type GateResult = {
   overrideActive: boolean;
   overrideUntilMs: number;
   overrideCooldownUntilMs: number;
+
+  // ✅ Step 15: non-blocking discipline nudges (NO lockout)
+  softWarnings: string[];
 
   stats: {
     tradeCount: number;
@@ -25,7 +28,7 @@ export type GateResult = {
     maxDailyLossR: number;
     maxConsecutiveLosses: number;
     requireDailyPlan: boolean;
-    requireDailyCloseout: boolean;
+    requireDailyCloseout: boolean; // still exists, but we treat as SOFT (no lockout)
   };
 };
 
@@ -59,7 +62,7 @@ function toNum(v: string | null, fallback: number) {
 export async function evaluateGate(): Promise<GateResult> {
   const now = Date.now();
 
-  // Mode + override settings
+  // Mode + override settings (match your Admin screen keys)
   const [appModeRaw, overrideUntilRaw, overrideCooldownRaw] = await Promise.all([
     getSetting("appMode"),
     getSetting("gateOverrideUntil"),
@@ -109,6 +112,7 @@ export async function evaluateGate(): Promise<GateResult> {
       overrideActive: false,
       overrideUntilMs: 0,
       overrideCooldownUntilMs,
+      softWarnings: [],
       stats,
       settings,
     };
@@ -123,24 +127,24 @@ export async function evaluateGate(): Promise<GateResult> {
   ]);
 
   const reasons: string[] = [];
+  const softWarnings: string[] = [];
 
+  // ✅ Keep Daily Plan as a hard rule (your “Real mode discipline”)
   if (!planDone) reasons.push("Daily Plan not completed for today.");
-  if (!closeoutDone) reasons.push("Yesterday’s Daily Closeout not completed.");
 
-  if (
-    settings.maxTradesPerDay > 0 &&
-    stats.tradeCount >= settings.maxTradesPerDay
-  ) {
-    reasons.push(
-      `Max trades hit (${stats.tradeCount}/${settings.maxTradesPerDay}).`
-    );
+  // ✅ Closeout is now SOFT (no lockout)
+  if (!closeoutDone && settings.requireDailyCloseout) {
+    softWarnings.push("CLOSEOUT_MISSING");
+  }
+
+  // Hard rules (existing)
+  if (settings.maxTradesPerDay > 0 && stats.tradeCount >= settings.maxTradesPerDay) {
+    reasons.push(`Max trades hit (${stats.tradeCount}/${settings.maxTradesPerDay}).`);
   }
 
   if (settings.maxDailyLossR > 0 && stats.sumR <= -settings.maxDailyLossR) {
     reasons.push(
-      `Daily loss limit hit (${stats.sumR.toFixed(
-        2
-      )}R ≤ -${settings.maxDailyLossR}R).`
+      `Daily loss limit hit (${stats.sumR.toFixed(2)}R ≤ -${settings.maxDailyLossR}R).`
     );
   }
 
@@ -162,6 +166,7 @@ export async function evaluateGate(): Promise<GateResult> {
     overrideActive,
     overrideUntilMs,
     overrideCooldownUntilMs,
+    softWarnings,
     stats,
     settings,
   };
