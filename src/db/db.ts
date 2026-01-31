@@ -153,19 +153,18 @@ export async function upsertStrategy(input: StrategyUpsertInput): Promise<string
   await database.runAsync(
     `INSERT OR REPLACE INTO strategies
       (id, created_at, updated_at, name, market, style_tags, timeframes, description, checklist, image_url)
-     VALUES (?, COALESCE((SELECT created_at FROM strategies WHERE id=?), ?), ?, ?, ?, ?, ?, ?, ?, ?);`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     [
-      id,
       id,
       createdAt,
       now,
       input.name.trim(),
       input.market,
-      (input.styleTags ?? "").trim(),
-      (input.timeframes ?? "").trim(),
-      (input.description ?? "").trim(),
-      (input.checklist ?? "").trim(),
-      (input.imageUrl ?? "").trim(),
+      input.styleTags ?? "",
+      input.timeframes ?? "",
+      input.description ?? "",
+      input.checklist ?? "",
+      input.imageUrl ?? "",
     ]
   );
 
@@ -174,7 +173,6 @@ export async function upsertStrategy(input: StrategyUpsertInput): Promise<string
 
 export async function listStrategies(): Promise<Strategy[]> {
   const database = getDb();
-
   const rows = await database.getAllAsync<{
     id: string;
     created_at: number;
@@ -186,14 +184,28 @@ export async function listStrategies(): Promise<Strategy[]> {
     description: string;
     checklist: string;
     image_url: string;
-  }>(`SELECT * FROM strategies ORDER BY updated_at DESC;`);
+  }>(`
+    SELECT
+      id,
+      created_at,
+      updated_at,
+      name,
+      market,
+      COALESCE(style_tags, '') AS style_tags,
+      COALESCE(timeframes, '') AS timeframes,
+      COALESCE(description, '') AS description,
+      COALESCE(checklist, '') AS checklist,
+      COALESCE(image_url, '') AS image_url
+    FROM strategies
+    ORDER BY updated_at DESC;
+  `);
 
   return rows.map((r) => ({
     id: r.id,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     name: r.name,
-    market: (r.market as StrategyMarket) ?? "both",
+    market: (r.market as StrategyMarket) ?? "gold",
     styleTags: r.style_tags ?? "",
     timeframes: r.timeframes ?? "",
     description: r.description ?? "",
@@ -209,6 +221,11 @@ export async function deleteStrategy(id: string): Promise<void> {
 
 export type StrategyStats = {
   strategyId: string;
+  /** Human-friendly name resolved from strategies table (preferred),
+   *  or from trades.strategy_name (fallback),
+   *  or the raw strategyId as a last resort.
+   */
+  strategyName: string;
   tradeCount: number;
   winRate: number; // 0..1
   avgR: number;
@@ -220,26 +237,36 @@ export async function getStrategyStats(): Promise<Record<string, StrategyStats>>
 
   const rows = await database.getAllAsync<{
     strategy_id: string;
+    strategy_name: string;
     c: number;
     wins: number;
     avgR: number;
     totalR: number;
   }>(`
     SELECT
-      COALESCE(strategy_id, '') AS strategy_id,
+      COALESCE(t.strategy_id, '') AS strategy_id,
+      -- Prefer the current name from strategies table.
+      -- If the strategy was deleted, fall back to any name that was stored on the trade at the time.
+      COALESCE(
+        MAX(s.name),
+        MAX(NULLIF(t.strategy_name, '')),
+        COALESCE(t.strategy_id, '')
+      ) AS strategy_name,
       COUNT(*) AS c,
-      SUM(CASE WHEN result_r > 0 THEN 1 ELSE 0 END) AS wins,
-      AVG(result_r) AS avgR,
-      SUM(result_r) AS totalR
-    FROM trades
-    WHERE COALESCE(strategy_id, '') <> ''
-    GROUP BY strategy_id;
+      SUM(CASE WHEN t.result_r > 0 THEN 1 ELSE 0 END) AS wins,
+      AVG(t.result_r) AS avgR,
+      SUM(t.result_r) AS totalR
+    FROM trades t
+    LEFT JOIN strategies s ON s.id = t.strategy_id
+    WHERE COALESCE(t.strategy_id, '') <> ''
+    GROUP BY t.strategy_id;
   `);
 
   const out: Record<string, StrategyStats> = {};
   for (const r of rows) {
     out[r.strategy_id] = {
       strategyId: r.strategy_id,
+      strategyName: r.strategy_name ?? r.strategy_id,
       tradeCount: r.c ?? 0,
       winRate: r.c ? (r.wins ?? 0) / r.c : 0,
       avgR: r.avgR ?? 0,

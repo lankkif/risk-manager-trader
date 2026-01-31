@@ -15,6 +15,17 @@ function pct(x: number) {
   return `${Math.round((x || 0) * 100)}%`;
 }
 
+function shortId(id: string, n = 6) {
+  const s = String(id || "");
+  return s.length > n ? s.slice(0, n) : s;
+}
+
+function strategyLabel(name: string, id: string) {
+  const cleanName = (name || "").trim();
+  if (cleanName) return cleanName;
+  return `Strategy ${shortId(id)}`;
+}
+
 function pickNum(obj: any, keys: string[], fallback = 0) {
   for (const k of keys) {
     const v = obj?.[k];
@@ -93,8 +104,12 @@ export default function DashboardTab() {
       const avgR = pickNum(st, ["avgR", "averageR", "meanR"], NaN);
       const winRate = pickNum(st, ["winRate", "wr"], NaN);
 
+      const strategyName = String(st?.strategyName ?? "");
+
       return {
         strategyId,
+        strategyName,
+        displayName: strategyLabel(strategyName, strategyId),
         tradeCount,
         totalR: Number.isFinite(totalR) ? totalR : 0,
         avgR: Number.isFinite(avgR) ? avgR : 0,
@@ -119,7 +134,7 @@ export default function DashboardTab() {
       return "Log more trades per strategy to unlock insights.";
     const worst = worst3[0];
     if (!worst) return "Log more trades per strategy to unlock insights.";
-    return `Focus: your lowest performer is "${worst.strategyId}" (Total R ${worst.totalR.toFixed(
+    return `Focus: your lowest performer is "${worst.displayName}" (Total R ${worst.totalR.toFixed(
       2
     )}). Either improve rules, reduce frequency, or pause it.`;
   }, [ranked, worst3]);
@@ -133,48 +148,45 @@ export default function DashboardTab() {
       contentContainerStyle={{
         padding: 16,
         gap: 12,
-        paddingBottom: 160, // ✅ more space so it scrolls past the bottom tabs
+        paddingBottom: 40,
       }}
     >
-      <Text style={{ fontSize: 28, fontWeight: "900" }}>Stats</Text>
+      <Text style={{ fontSize: 24, fontWeight: "900" }}>Dashboard</Text>
 
-      {/* Today Summary */}
+      {/* Today */}
       <View
         style={{
-          padding: 14,
           borderWidth: 1,
           borderColor: "#eee",
-          borderRadius: 14,
-          gap: 8,
+          borderRadius: 16,
+          padding: 14,
+          gap: 6,
         }}
       >
-        <Text style={{ fontWeight: "900", fontSize: 16 }}>Today</Text>
-        <Text>
-          Trades: <Text style={{ fontWeight: "900" }}>{todayTrades}</Text>
-        </Text>
-        <Text>
-          Total R:{" "}
-          <Text style={{ fontWeight: "900" }}>{todayTotalR.toFixed(2)}</Text>
-        </Text>
-        <Text>
-          Win rate:{" "}
-          <Text style={{ fontWeight: "900" }}>{pct(todayWinRate)}</Text>
+        <Text style={{ fontSize: 16, fontWeight: "900" }}>Today</Text>
+        <Text style={{ color: "#666" }}>
+          Trades: <Text style={{ fontWeight: "900", color: "#111" }}>{todayTrades}</Text>{" "}
+          • Total R:{" "}
+          <Text style={{ fontWeight: "900", color: "#111" }}>
+            {todayTotalR.toFixed(2)}
+          </Text>{" "}
+          • Win:{" "}
+          <Text style={{ fontWeight: "900", color: "#111" }}>{pct(todayWinRate)}</Text>
         </Text>
       </View>
 
       {/* Insight */}
       <View
         style={{
-          padding: 14,
           borderWidth: 1,
           borderColor: "#eee",
-          borderRadius: 14,
+          borderRadius: 16,
+          padding: 14,
           gap: 6,
-          backgroundColor: "#fafafa",
         }}
       >
-        <Text style={{ fontWeight: "900" }}>Coach Note</Text>
-        <Text style={{ color: "#333" }}>{insight}</Text>
+        <Text style={{ fontSize: 16, fontWeight: "900" }}>Insight</Text>
+        <Text style={{ color: "#666", lineHeight: 20 }}>{insight}</Text>
       </View>
 
       {/* Top Strategies */}
@@ -198,7 +210,7 @@ export default function DashboardTab() {
               }}
             >
               <Text style={{ fontWeight: "900" }}>
-                #{i + 1} • {r.strategyId}
+                #{i + 1} • {r.displayName}
               </Text>
               <Text style={{ color: "#666" }}>
                 Trades: {r.tradeCount} • Win: {pct(r.winRate)} • Avg R:{" "}
@@ -229,7 +241,7 @@ export default function DashboardTab() {
                 gap: 4,
               }}
             >
-              <Text style={{ fontWeight: "900" }}>{r.strategyId}</Text>
+              <Text style={{ fontWeight: "900" }}>{r.displayName}</Text>
               <Text style={{ color: "#666" }}>
                 Trades: {r.tradeCount} • Win: {pct(r.winRate)} • Avg R:{" "}
                 {r.avgR.toFixed(2)} • Total R: {r.totalR.toFixed(2)}
