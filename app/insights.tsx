@@ -2,15 +2,13 @@ import { useFocusEffect } from "@react-navigation/native";
 import { router } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
-import { getRecentTradeDayKeys, listStrategies, listTrades, Strategy, TradeRow } from "~/db/db";
-
-function todayKey() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+import {
+    getRecentTradeDayKeysForWindow,
+    listStrategies,
+    listTradesRecent,
+    Strategy,
+    TradeRow,
+} from "~/db/db";
 
 function pct(x: number) {
   return `${Math.round((x || 0) * 100)}%`;
@@ -76,25 +74,16 @@ export default function InsightsScreen() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [sList, daysFromDb] = await Promise.all([
+      // ✅ Single source of truth for the window (same as Journal)
+      const [sList, keys, recentTrades] = await Promise.all([
         listStrategies(),
-        getRecentTradeDayKeys(windowDays),
+        getRecentTradeDayKeysForWindow(windowDays),
+        listTradesRecent(windowDays, 5000),
       ]);
 
-      const mergedDays = Array.from(new Set([todayKey(), ...daysFromDb])).slice(
-        0,
-        windowDays
-      );
-
-      const tradesByDay = await Promise.all(
-        mergedDays.map((d) => listTrades({ dayKey: d, limit: 1000 }))
-      );
-
       setStrategies(sList);
-      setDayKeys(mergedDays);
-
-      const mergedTrades = tradesByDay.flat();
-      setAllTrades(mergedTrades);
+      setDayKeys(keys);
+      setAllTrades(recentTrades);
     } finally {
       setLoading(false);
     }
@@ -461,7 +450,9 @@ export default function InsightsScreen() {
       </Card>
 
       <Text style={{ color: "#666" }}>
-        {loading ? "Refreshing…" : "Tip: This becomes powerful once you consistently tag mistakes + follow your plan."}
+        {loading
+          ? "Refreshing…"
+          : "Tip: This becomes powerful once you consistently tag mistakes + follow your plan."}
       </Text>
     </ScrollView>
   );
