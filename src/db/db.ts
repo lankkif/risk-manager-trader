@@ -81,6 +81,15 @@ export type DailyPlanInput = {
   scenarios?: string;
 };
 
+export type DailyPlanRow = {
+  dayKey: string;
+  createdAt: number;
+  bias: string;
+  newsCaution: boolean;
+  keyLevels: string;
+  scenarios: string;
+};
+
 export async function upsertDailyPlan(dayKey: string, input: DailyPlanInput) {
   const database = getDb();
   const createdAt = Date.now();
@@ -107,6 +116,45 @@ export async function hasDailyPlan(dayKey: string): Promise<boolean> {
     [dayKey]
   );
   return (row?.c ?? 0) > 0;
+}
+
+/** ✅ Step 21: Load today's plan so you can edit it */
+export async function getDailyPlan(dayKey: string): Promise<DailyPlanRow | null> {
+  const database = getDb();
+
+  const row = await database.getFirstAsync<{
+    day_key: string;
+    created_at: number;
+    bias: string | null;
+    news_caution: number | null;
+    key_levels: string | null;
+    scenarios: string | null;
+  }>(
+    `
+    SELECT
+      day_key,
+      created_at,
+      bias,
+      news_caution,
+      key_levels,
+      scenarios
+    FROM daily_plan
+    WHERE day_key = ?
+    LIMIT 1;
+    `,
+    [dayKey]
+  );
+
+  if (!row) return null;
+
+  return {
+    dayKey: row.day_key,
+    createdAt: row.created_at,
+    bias: row.bias ?? "",
+    newsCaution: (row.news_caution ?? 0) === 1,
+    keyLevels: row.key_levels ?? "",
+    scenarios: row.scenarios ?? "",
+  };
 }
 
 /** ---------------- Daily Closeout ---------------- **/
