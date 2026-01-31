@@ -1,6 +1,6 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { router } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   Pressable,
@@ -31,12 +31,39 @@ function pct(x: number) {
   return `${Math.round(x * 100)}%`;
 }
 
+function toBool(v: string | null, fallback: boolean) {
+  if (v === null) return fallback;
+  return v === "1" || v.toLowerCase() === "true";
+}
+
+function toNum(v: string | null, fallback: number) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+type SaveState = "idle" | "saving" | "saved";
+
 export default function AdminTab() {
   // Mode/Override
   const [mode, setMode] = useState<"demo" | "real">("demo");
   const [overrideUntil, setOverrideUntil] = useState<number>(0);
   const [cooldownUntil, setCooldownUntil] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+
+  // ✅ Live gate snapshot (for rule status display)
+  const [gate, setGate] = useState<Awaited<ReturnType<typeof evaluateGate>> | null>(
+    null
+  );
+
+  // ✅ Discipline rules
+  const [requireDailyPlan, setRequireDailyPlan] = useState(true);
+  const [requireDailyCloseout, setRequireDailyCloseout] = useState(true);
+  const [maxTradesPerDay, setMaxTradesPerDay] = useState("3");
+  const [maxDailyLossR, setMaxDailyLossR] = useState("2");
+  const [maxConsecutiveLosses, setMaxConsecutiveLosses] = useState("2");
+
+  const [rulesSaveState, setRulesSaveState] = useState<SaveState>("idle");
+  const rulesSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Strategy manager state
   const [strategies, setStrategies] = useState<Strategy[]>([]);
@@ -60,8 +87,30 @@ export default function AdminTab() {
       setMode(appMode === "real" ? "real" : "demo");
 
       const r = await evaluateGate();
+      setGate(r);
       setOverrideUntil(r.overrideUntilMs);
       setCooldownUntil(r.overrideCooldownUntilMs);
+
+      // ✅ Load discipline settings (fallbacks match permissions.ts defaults)
+      const [
+        reqPlanRaw,
+        reqCloseRaw,
+        maxTradesRaw,
+        maxLossRaw,
+        maxConsecRaw,
+      ] = await Promise.all([
+        getSetting("requireDailyPlan"),
+        getSetting("requireDailyCloseout"),
+        getSetting("maxTradesPerDay"),
+        getSetting("maxDailyLossR"),
+        getSetting("maxConsecutiveLosses"),
+      ]);
+
+      setRequireDailyPlan(toBool(reqPlanRaw, true));
+      setRequireDailyCloseout(toBool(reqCloseRaw, true));
+      setMaxTradesPerDay(String(toNum(maxTradesRaw, 3)));
+      setMaxDailyLossR(String(toNum(maxLossRaw, 2)));
+      setMaxConsecutiveLosses(String(toNum(maxConsecRaw, 2)));
 
       const [sList, sStats] = await Promise.all([
         listStrategies(),
@@ -77,6 +126,12 @@ export default function AdminTab() {
   useFocusEffect(
     useCallback(() => {
       refresh();
+      return () => {
+        if (rulesSaveTimerRef.current) {
+          clearTimeout(rulesSaveTimerRef.current);
+          rulesSaveTimerRef.current = null;
+        }
+      };
     }, [refresh])
   );
 
@@ -136,12 +191,168 @@ export default function AdminTab() {
     await refresh();
   }
 
+  function safeNumString(s: string, fallback: number) {
+    const n = Number(String(s ?? "").trim().replace(",", "."));
+    if (!Number.isFinite(n)) return String(fallback);
+    return String(n);
+  }
+
+  async function saveRules() {
+    if (rulesSaveState === "saving") return;
+
+    if (rulesSaveTimerRef.current) {
+      clearTimeout(rulesSaveTimerRef.current);
+      rulesSaveTimerRef.current = null;
+    }
+
+    setRulesSaveState("saving");
+
+    const mt = safeNumString(maxTradesPerDay, 3);
+    const mdl = safeNumString(maxDailyLossR, 2);
+    const mcl = safeNumString(maxConsecutiveLosses, 2);
+
+    // ensure UI stays clean
+    setMaxTradesPerDay(mt);
+    setMaxDailyLossR(mdl);
+    setMaxConsecutiveLosses(mcl);
+
+    await Promise.all([
+      setSetting("requireDailyPlan", requireDailyPlan ? "1" : "0"),
+      setSetting("requireDailyCloseout", requireDailyCloseout ? "1" : "0"),
+      setSetting("maxTradesPerDay", mt),
+      setSetting("maxDailyLossR", mdl),
+      setSetting("maxConsecutiveLosses", mcl),
+    ]);
+
+    setRulesSaveState("saved");
+    rulesSaveTimerRef.current = setTimeout(() => {
+      setRulesSaveState("idle");
+      rulesSaveTimerRef.current = null;
+    }, 1200);
+
+    await refresh();
+  }
+
+  async function resetRulesDefaults() {
+    setRequireDailyPlan(true);
+    setRequireDailyCloseout(true);
+    setMaxTradesPerDay("3");
+    setMaxDailyLossR("2");
+    setMaxConsecutiveLosses("2");
+    await Promise.all([
+      setSetting("requireDailyPlan", "1"),
+      setSetting("requireDailyCloseout", "1"),
+      setSetting("maxTradesPerDay", "3"),
+      setSetting("maxDailyLossR", "2"),
+      setSetting("maxConsecutiveLosses", "2"),
+    ]);
+    await refresh();
+  }
+
+  const rulesButtonText =
+    rulesSaveState === "saving"
+      ? "Saving…"
+      : rulesSaveState === "saved"
+      ? "Saved ✅"
+      : "Save Discipline Rules";
+
+  const rulesButtonBg = rulesSaveState === "saved" ? "#0a7a2f" : "#111";
+
+  const lockedHard =
+    gate?.mode === "real" && gate && !gate.canTrade && !gate.overrideActive;
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: "white" }}
       contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 50 }}
     >
       <Text style={{ fontSize: 26, fontWeight: "900" }}>Admin</Text>
+
+      {/* ✅ Live Gate Status */}
+      <View
+        style={{
+          padding: 14,
+          borderWidth: 1,
+          borderColor: lockedHard ? "#ffd38a" : "#eee",
+          borderRadius: 14,
+          gap: 8,
+          backgroundColor: lockedHard ? "#fff7ea" : "#fafafa",
+        }}
+      >
+        <Text style={{ fontWeight: "900", fontSize: 16 }}>Live Gate Status</Text>
+
+        {!gate ? (
+          <Text style={{ color: "#666" }}>Loading gate…</Text>
+        ) : (
+          <>
+            <Text style={{ color: "#666" }}>
+              Mode: <Text style={{ fontWeight: "900" }}>{gate.mode.toUpperCase()}</Text>{" "}
+              • Override:{" "}
+              <Text style={{ fontWeight: "900" }}>
+                {gate.overrideActive ? "ON" : "OFF"}
+              </Text>
+            </Text>
+
+            {gate.mode === "real" ? (
+              <Text style={{ color: "#666" }}>
+                Today: Trades{" "}
+                <Text style={{ fontWeight: "900" }}>{gate.stats.tradeCount}</Text>{" "}
+                • Total R{" "}
+                <Text style={{ fontWeight: "900" }}>{gate.stats.sumR.toFixed(2)}R</Text>{" "}
+                • Consec losses{" "}
+                <Text style={{ fontWeight: "900" }}>{gate.stats.consecutiveLosses}</Text>
+              </Text>
+            ) : null}
+
+            <Text style={{ fontWeight: "900" }}>
+              {gate.mode === "demo"
+                ? "✅ DEMO bypasses gate"
+                : gate.overrideActive
+                ? "⚠ Override active (gate bypassed)"
+                : gate.canTrade
+                ? "✅ You can trade"
+                : "⛔ Locked by rules"}
+            </Text>
+
+            {lockedHard && gate.reasons.length ? (
+              <View style={{ gap: 4 }}>
+                {gate.reasons.map((r, i) => (
+                  <Text key={i}>• {r}</Text>
+                ))}
+              </View>
+            ) : null}
+
+            {/* Quick actions */}
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+              <Pressable
+                onPress={() => router.push("/(tabs)/plan")}
+                style={{
+                  paddingVertical: 12,
+                  paddingHorizontal: 14,
+                  borderRadius: 12,
+                  backgroundColor: "#111",
+                }}
+              >
+                <Text style={{ color: "white", fontWeight: "900" }}>Go to Plan</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => router.push("/(tabs)/closeout")}
+                style={{
+                  paddingVertical: 12,
+                  paddingHorizontal: 14,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: "#ddd",
+                  backgroundColor: "white",
+                }}
+              >
+                <Text style={{ fontWeight: "900" }}>Go to Closeout</Text>
+              </Pressable>
+            </View>
+          </>
+        )}
+      </View>
 
       {/* Mode/Override */}
       <View
@@ -202,6 +413,104 @@ export default function AdminTab() {
               ? "Override in cooldown (24h)"
               : "Activate Override (1 hour)"}
           </Text>
+        </Pressable>
+      </View>
+
+      {/* ✅ Discipline Rules (Step 24) */}
+      <View
+        style={{
+          padding: 14,
+          borderWidth: 1,
+          borderColor: "#eee",
+          borderRadius: 14,
+          gap: 10,
+        }}
+      >
+        <Text style={{ fontWeight: "900", fontSize: 18 }}>Discipline Rules</Text>
+        <Text style={{ color: "#666" }}>
+          These rules only apply in REAL mode. Plan is a hard gate. Closeout is a warning (soft).
+        </Text>
+
+        <Row>
+          <View style={{ flex: 1, minWidth: 220, gap: 6 }}>
+            <Text style={{ fontWeight: "800" }}>Require Daily Plan (hard)</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <Text style={{ fontWeight: "800" }}>Off</Text>
+              <Switch
+                value={requireDailyPlan}
+                onValueChange={setRequireDailyPlan}
+              />
+              <Text style={{ fontWeight: "800" }}>On</Text>
+            </View>
+          </View>
+
+          <View style={{ flex: 1, minWidth: 220, gap: 6 }}>
+            <Text style={{ fontWeight: "800" }}>Require Closeout (soft)</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <Text style={{ fontWeight: "800" }}>Off</Text>
+              <Switch
+                value={requireDailyCloseout}
+                onValueChange={setRequireDailyCloseout}
+              />
+              <Text style={{ fontWeight: "800" }}>On</Text>
+            </View>
+          </View>
+        </Row>
+
+        <Label label="Max trades per day" />
+        <TextInput
+          value={maxTradesPerDay}
+          onChangeText={setMaxTradesPerDay}
+          placeholder="3"
+          keyboardType="numeric"
+          style={inputStyle}
+        />
+
+        <Label label="Max daily loss (R) (e.g. 2 means lock at -2R)" />
+        <TextInput
+          value={maxDailyLossR}
+          onChangeText={setMaxDailyLossR}
+          placeholder="2"
+          keyboardType="numeric"
+          style={inputStyle}
+        />
+
+        <Label label="Max consecutive losses (e.g. 2)" />
+        <TextInput
+          value={maxConsecutiveLosses}
+          onChangeText={setMaxConsecutiveLosses}
+          placeholder="2"
+          keyboardType="numeric"
+          style={inputStyle}
+        />
+
+        <Pressable
+          onPress={saveRules}
+          disabled={loading || rulesSaveState === "saving"}
+          style={{
+            padding: 14,
+            borderRadius: 12,
+            alignItems: "center",
+            backgroundColor: rulesButtonBg,
+            opacity: loading ? 0.6 : 1,
+          }}
+        >
+          <Text style={{ color: "white", fontWeight: "900" }}>
+            {loading ? "Loading…" : rulesButtonText}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={resetRulesDefaults}
+          style={{
+            padding: 14,
+            borderRadius: 12,
+            alignItems: "center",
+            borderWidth: 1,
+            borderColor: "#ddd",
+          }}
+        >
+          <Text style={{ fontWeight: "900" }}>Reset to Defaults</Text>
         </Pressable>
       </View>
 
@@ -485,4 +794,3 @@ const inputStyle = {
   padding: 12,
   backgroundColor: "white",
 } as const;
-
