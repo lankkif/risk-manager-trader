@@ -17,7 +17,7 @@ export async function initDb(): Promise<void> {
   await database.execAsync(SQL_CREATE_TABLES);
 
   // ✅ Step 13.2: Backfill strategy_name for older trades where it's missing.
-  // This keeps dashboards human-friendly even if a strategy is later deleted.
+  // Keeps dashboards human-friendly even if a strategy is later deleted.
   await database.runAsync(`
     UPDATE trades
     SET strategy_name = (
@@ -31,6 +31,15 @@ export async function initDb(): Promise<void> {
       AND TRIM(strategy_id) <> ''
       AND EXISTS (SELECT 1 FROM strategies s WHERE s.id = trades.strategy_id);
   `);
+}
+
+/** ---------------- Helpers ---------------- **/
+function getDayStartEndMs(dayKey: string) {
+  const [y, m, d] = dayKey.split("-").map(Number);
+  const start = new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { startMs: start.getTime(), endMs: end.getTime() };
 }
 
 /** ---------------- Settings ---------------- **/
@@ -141,8 +150,8 @@ export type Strategy = {
   updatedAt: number;
   name: string;
   market: StrategyMarket;
-  styleTags: string;
-  timeframes: string;
+  styleTags: string; // "scalp,intraday"
+  timeframes: string; // "M5,M15,H1"
   description: string;
   checklist: string;
   imageUrl: string;
@@ -164,7 +173,7 @@ export async function upsertStrategy(input: StrategyUpsertInput): Promise<string
   const now = Date.now();
 
   const id = input.id ?? makeId();
-  const createdAt = now;
+  const createdAtFallback = now;
 
   await database.runAsync(
     `INSERT OR REPLACE INTO strategies
@@ -173,7 +182,7 @@ export async function upsertStrategy(input: StrategyUpsertInput): Promise<string
     [
       id,
       id,
-      createdAt,
+      createdAtFallback,
       now,
       input.name.trim(),
       input.market,
@@ -227,7 +236,7 @@ export type StrategyStats = {
   strategyId: string;
   strategyName: string;
   tradeCount: number;
-  winRate: number;
+  winRate: number; // 0..1
   avgR: number;
   totalR: number;
 };
@@ -312,20 +321,131 @@ export async function insertTrade(t: TradeInsert) {
   );
 }
 
-function getDayStartEndMs(dayKey: string) {
-  const [y, m, d] = dayKey.split("-").map(Number);
-  const start = new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { startMs: start.getTime(), endMs: end.getTime() };
+export type TradeRow = {
+  id: string;
+  createdAt: number;
+  strategyId: string;
+  strategyName: string;
+  bias: string;
+  session: string;
+  timeframe: string;
+  riskR: number | null;
+  resultR: number;
+  ruleBreaks: string;
+  notes: string;
+};
+
+export type ListTradesParams = {
+  dayKey?: string; // "YYYY-MM-DD"
+  strategyId?: string; // exact strategy_id
+  limit?: number;
+  offset?: number;
+};
+
+export async function listTrades(params: ListTradesParams): Promise<TradeRow[]> {
+  const database = getDb();
+
+  const where: string[] = [];
+  const args: (string | number)[] = [];
+
+  if (params.dayKey) {
+    const { startMs, endMs } = getDayStartEndMs(params.dayKey);
+    where.push("created_at >= ? AND created_at < ?");
+    args.push(startMs, endMs);
+  }
+
+  if (params.strategyId && params.strategyId.trim() !== "") {
+    where.push("strategy_id = ?");
+    args.push(params.strategyId.trim());
+  }
+
+  const limit = typeof params.limit === "number" ? params.limit : 200;
+  const offset = typeof params.offset === "number" ? params.offset : 0;
+
+  const sql = `
+    SELECT
+      id,
+      created_at,
+      COALESCE(strategy_id, '') AS strategy_id,
+      COALESCE(strategy_name, '') AS strategy_name,
+      COALESCE(bias, '') AS bias,
+      COALESCE(session, '') AS session,
+      COALESCE(timeframe, '') AS timeframe,
+      risk_r,
+      result_r,
+      COALESCE(rule_breaks, '') AS rule_breaks,
+      COALESCE(notes, '') AS notes
+    FROM trades
+    ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY created_at DESC
+    LIMIT ? OFFSET ?;
+  `;
+
+  const rows = await database.getAllAsync<{
+    id: string;
+    created_at: number;
+    strategy_id: string;
+    strategy_name: string;
+    bias: string;
+    session: string;
+    timeframe: string;
+    risk_r: number | null;
+    result_r: number;
+    rule_breaks: string;
+    notes: string;
+  }>(sql, [...args, limit, offset]);
+
+  return rows.map((r) => ({
+    id: r.id,
+    createdAt: r.created_at,
+    strategyId: r.strategy_id ?? "",
+    strategyName: r.strategy_name ?? "",
+    bias: r.bias ?? "",
+    session: r.session ?? "",
+    timeframe: r.timeframe ?? "",
+    riskR: typeof r.risk_r === "number" ? r.risk_r : null,
+    resultR: typeof r.result_r === "number" ? r.result_r : Number(r.result_r),
+    ruleBreaks: r.rule_breaks ?? "",
+    notes: r.notes ?? "",
+  }));
 }
 
+export async function deleteTrade(tradeId: string): Promise<void> {
+  const database = getDb();
+  await database.runAsync("DELETE FROM trades WHERE id = ?;", [tradeId]);
+}
+
+/**
+ * Returns recent trade day keys like ["2026-01-31", "2026-01-30", ...]
+ * Uses device local time (important for your daily discipline workflow).
+ */
+export async function getRecentTradeDayKeys(limit = 14): Promise<string[]> {
+  const database = getDb();
+
+  const rows = await database.getAllAsync<{ day_key: string }>(
+    `
+    SELECT
+      strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') AS day_key
+    FROM trades
+    GROUP BY day_key
+    ORDER BY day_key DESC
+    LIMIT ?;
+    `,
+    [limit]
+  );
+
+  return rows.map((r) => r.day_key).filter(Boolean);
+}
+
+/**
+ * Trade stats for a given day (used by Dashboard "Today").
+ */
 export type TradeStats = {
   tradeCount: number;
   sumR: number;
   consecutiveLosses: number;
   wins: number;
-  winRate: number;
+  winRate: number; // 0..1
   avgR: number;
   totalR: number;
 };
@@ -383,4 +503,3 @@ export async function getTradeStatsForDay(dayKey: string): Promise<TradeStats> {
     totalR: sumR,
   };
 }
-
