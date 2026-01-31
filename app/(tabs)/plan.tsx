@@ -34,6 +34,11 @@ export default function PlanTab() {
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const markDirty = useCallback(() => {
+    // if user changes anything after saving, go back to "Not saved"
+    if (saveState === "saved") setSaveState("idle");
+  }, [saveState]);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -77,6 +82,7 @@ export default function PlanTab() {
   const canSave = useMemo(() => {
     if (loading) return false;
     if (saveState === "saving") return false;
+    if (saveState === "saved") return false;
 
     const hasAny =
       (bias || "").trim().length > 0 ||
@@ -123,7 +129,7 @@ export default function PlanTab() {
       saveTimer.current = setTimeout(() => {
         setSaveState("idle");
         saveTimer.current = null;
-      }, 1000);
+      }, 2500);
     } catch (e) {
       console.warn("Save plan failed:", e);
       setSaveState("idle");
@@ -157,6 +163,12 @@ export default function PlanTab() {
     }
     return "DEMO MODE: Build your discipline plan and test flows.";
   }, [isRealMode]);
+
+  const saveButtonText =
+    saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved ✅" : "Save Plan";
+
+  const saveButtonBg =
+    saveState === "saved" ? "#0a7a2f" : canSave ? "#111" : "#bbb";
 
   return (
     <ScrollView
@@ -225,7 +237,10 @@ export default function PlanTab() {
             return (
               <Pressable
                 key={b}
-                onPress={() => setBias(b)}
+                onPress={() => {
+                  markDirty();
+                  setBias(b);
+                }}
                 disabled={!allowInputs}
                 style={{
                   paddingVertical: 10,
@@ -247,7 +262,10 @@ export default function PlanTab() {
 
         <TextInput
           value={bias}
-          onChangeText={setBias}
+          onChangeText={(v) => {
+            markDirty();
+            setBias(v);
+          }}
           placeholder="Optional custom bias notes…"
           editable={allowInputs}
           style={input}
@@ -268,7 +286,13 @@ export default function PlanTab() {
           <Text style={{ color: "#666", flex: 1 }}>
             Turn on if high-impact news may cause spikes (CPI, NFP, FOMC, etc.).
           </Text>
-          <Switch value={newsCaution} onValueChange={setNewsCaution} />
+          <Switch
+            value={newsCaution}
+            onValueChange={(v) => {
+              markDirty();
+              setNewsCaution(v);
+            }}
+          />
         </View>
       </View>
 
@@ -278,7 +302,10 @@ export default function PlanTab() {
           <Text style={{ fontWeight: "900" }}>Key Levels</Text>
           <Pressable
             onPress={() => {
-              if (!keyLevels.trim()) setKeyLevels(templateLevels);
+              if (!keyLevels.trim()) {
+                markDirty();
+                setKeyLevels(templateLevels);
+              }
             }}
             style={{
               borderWidth: 1,
@@ -295,7 +322,10 @@ export default function PlanTab() {
 
         <TextInput
           value={keyLevels}
-          onChangeText={setKeyLevels}
+          onChangeText={(v) => {
+            markDirty();
+            setKeyLevels(v);
+          }}
           placeholder="Write key levels for today…"
           editable={allowInputs}
           multiline
@@ -313,7 +343,10 @@ export default function PlanTab() {
           <Text style={{ fontWeight: "900" }}>If–Then Scenarios</Text>
           <Pressable
             onPress={() => {
-              if (!scenarios.trim()) setScenarios(templateScenarios);
+              if (!scenarios.trim()) {
+                markDirty();
+                setScenarios(templateScenarios);
+              }
             }}
             style={{
               borderWidth: 1,
@@ -330,7 +363,10 @@ export default function PlanTab() {
 
         <TextInput
           value={scenarios}
-          onChangeText={setScenarios}
+          onChangeText={(v) => {
+            markDirty();
+            setScenarios(v);
+          }}
           placeholder="Write your scenarios for today…"
           editable={allowInputs}
           multiline
@@ -346,17 +382,16 @@ export default function PlanTab() {
       <View style={{ gap: 10 }}>
         <Pressable
           onPress={savePlan}
-          disabled={!canSave}
+          disabled={!canSave && saveState !== "saved"}
           style={{
-            backgroundColor: canSave ? "#111" : "#bbb",
+            backgroundColor: saveButtonBg,
             padding: 14,
             borderRadius: 12,
             alignItems: "center",
+            opacity: saveState === "saving" ? 0.8 : 1,
           }}
         >
-          <Text style={{ color: "white", fontWeight: "900" }}>
-            {saveState === "saving" ? "Saving…" : "Save Plan"}
-          </Text>
+          <Text style={{ color: "white", fontWeight: "900" }}>{saveButtonText}</Text>
         </Pressable>
 
         <Text style={{ color: "#666" }}>
