@@ -1,7 +1,12 @@
 import { useFocusEffect } from "@react-navigation/native";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
-import { getSetting, hasDailyCloseout, upsertDailyCloseout } from "~/db/db";
+import {
+  getDailyCloseout,
+  getSetting,
+  hasDailyCloseout,
+  upsertDailyCloseout,
+} from "~/db/db";
 
 function todayKey() {
   const d = new Date();
@@ -11,10 +16,21 @@ function todayKey() {
   return `${y}-${m}-${day}`;
 }
 
+function fmtTime(ms: number | null) {
+  if (!ms) return "";
+  const d = new Date(ms);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+type SaveState = "idle" | "saving" | "saved";
+
 export default function CloseoutTab() {
   const key = useMemo(() => todayKey(), []);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
 
   const [bias, setBias] = useState("");
   const [newsCaution, setNewsCaution] = useState(false);
@@ -27,6 +43,10 @@ export default function CloseoutTab() {
 
   const [mode, setMode] = useState<"demo" | "real">("demo");
 
+  // save feedback
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const saveResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -35,6 +55,20 @@ export default function CloseoutTab() {
 
       const has = await hasDailyCloseout(key);
       setSaved(has);
+
+      const row = await getDailyCloseout(key);
+      if (row) {
+        setBias(row.bias ?? "");
+        setNewsCaution(!!row.newsCaution);
+        setMood(typeof row.mood === "number" ? row.mood : 3);
+        setMistakes(row.mistakes ?? "");
+        setWins(row.wins ?? "");
+        setImprovement(row.improvement ?? "");
+        setExecutionGrade(row.executionGrade ?? "");
+        setLastSavedAt(row.createdAt ?? null);
+      } else {
+        setLastSavedAt(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -43,10 +77,25 @@ export default function CloseoutTab() {
   useFocusEffect(
     useCallback(() => {
       refresh();
+      return () => {
+        if (saveResetTimer.current) {
+          clearTimeout(saveResetTimer.current);
+          saveResetTimer.current = null;
+        }
+      };
     }, [refresh])
   );
 
   async function save() {
+    if (saveState === "saving") return;
+
+    if (saveResetTimer.current) {
+      clearTimeout(saveResetTimer.current);
+      saveResetTimer.current = null;
+    }
+
+    setSaveState("saving");
+
     await upsertDailyCloseout(key, {
       bias,
       newsCaution,
@@ -56,8 +105,30 @@ export default function CloseoutTab() {
       improvement,
       executionGrade,
     });
+
+    const now = Date.now();
     setSaved(true);
+    setLastSavedAt(now);
+
+    setSaveState("saved");
+    saveResetTimer.current = setTimeout(() => {
+      setSaveState("idle");
+      saveResetTimer.current = null;
+    }, 1200);
   }
+
+  const headerBorder =
+    saved || saveState === "saved" ? "#b7f7c1" : "#ffd38a";
+  const headerBg = saved || saveState === "saved" ? "#f2fff4" : "#fff7ea";
+
+  const buttonText =
+    saveState === "saving"
+      ? "Saving…"
+      : saveState === "saved"
+      ? "Saved ✅"
+      : "Save Closeout";
+
+  const buttonBg = saveState === "saved" ? "#0a7a2f" : "#111";
 
   return (
     <ScrollView
@@ -70,8 +141,8 @@ export default function CloseoutTab() {
       <View
         style={{
           borderWidth: 1,
-          borderColor: saved ? "#b7f7c1" : "#ffd38a",
-          backgroundColor: saved ? "#f2fff4" : "#fff7ea",
+          borderColor: headerBorder,
+          backgroundColor: headerBg,
           borderRadius: 14,
           padding: 12,
           gap: 6,
@@ -80,13 +151,22 @@ export default function CloseoutTab() {
         <Text style={{ fontWeight: "900" }}>
           {saved ? "✅ Closeout complete" : "⚠ Closeout not done"}
         </Text>
+
         <Text style={{ color: "#666" }}>
           Mode: <Text style={{ fontWeight: "900" }}>{mode.toUpperCase()}</Text> •
           Day: <Text style={{ fontWeight: "900" }}>{key}</Text>
+          {lastSavedAt ? (
+            <>
+              {" "}
+              • Last saved:{" "}
+              <Text style={{ fontWeight: "900" }}>{fmtTime(lastSavedAt)}</Text>
+            </>
+          ) : null}
         </Text>
+
         <Text style={{ color: "#666" }}>
           You will NOT be locked out. In Real mode, missing closeout is a warning
-          (and can be logged as a rule break).
+          (and can be logged as a rule break later).
         </Text>
       </View>
 
@@ -100,14 +180,23 @@ export default function CloseoutTab() {
 
       <Text style={{ fontWeight: "900" }}>News caution today?</Text>
       <View style={{ flexDirection: "row", gap: 8 }}>
-        <Chip text="No" active={!newsCaution} onPress={() => setNewsCaution(false)} />
+        <Chip
+          text="No"
+          active={!newsCaution}
+          onPress={() => setNewsCaution(false)}
+        />
         <Chip text="Yes" active={newsCaution} onPress={() => setNewsCaution(true)} />
       </View>
 
       <Text style={{ fontWeight: "900" }}>Mood (1–5)</Text>
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
         {[1, 2, 3, 4, 5].map((n) => (
-          <Chip key={n} text={String(n)} active={mood === n} onPress={() => setMood(n)} />
+          <Chip
+            key={n}
+            text={String(n)}
+            active={mood === n}
+            onPress={() => setMood(n)}
+          />
         ))}
       </View>
 
@@ -148,15 +237,19 @@ export default function CloseoutTab() {
 
       <Pressable
         onPress={save}
+        disabled={loading || saveState === "saving"}
         style={{
-          backgroundColor: "#111",
+          backgroundColor: buttonBg,
           padding: 14,
           borderRadius: 12,
           alignItems: "center",
           marginTop: 6,
+          opacity: loading ? 0.6 : 1,
         }}
       >
-        <Text style={{ color: "white", fontWeight: "900" }}>Save Closeout</Text>
+        <Text style={{ color: "white", fontWeight: "900" }}>
+          {loading ? "Loading…" : buttonText}
+        </Text>
       </Pressable>
 
       <Pressable

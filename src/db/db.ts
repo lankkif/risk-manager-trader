@@ -118,7 +118,7 @@ export async function hasDailyPlan(dayKey: string): Promise<boolean> {
   return (row?.c ?? 0) > 0;
 }
 
-/** ✅ Step 21: Load today's plan so you can edit it */
+/** ✅ Load plan for edit */
 export async function getDailyPlan(dayKey: string): Promise<DailyPlanRow | null> {
   const database = getDb();
 
@@ -168,6 +168,18 @@ export type DailyCloseoutInput = {
   executionGrade?: string;
 };
 
+export type DailyCloseoutRow = {
+  dayKey: string;
+  createdAt: number;
+  bias: string;
+  newsCaution: boolean;
+  mood: number;
+  mistakes: string;
+  wins: string;
+  improvement: string;
+  executionGrade: string;
+};
+
 export async function upsertDailyCloseout(
   dayKey: string,
   input: DailyCloseoutInput
@@ -200,6 +212,56 @@ export async function hasDailyCloseout(dayKey: string): Promise<boolean> {
     [dayKey]
   );
   return (row?.c ?? 0) > 0;
+}
+
+/** ✅ Step 22: Load closeout for edit */
+export async function getDailyCloseout(
+  dayKey: string
+): Promise<DailyCloseoutRow | null> {
+  const database = getDb();
+
+  const row = await database.getFirstAsync<{
+    day_key: string;
+    created_at: number;
+    bias: string | null;
+    news_caution: number | null;
+    mood: number | null;
+    mistakes: string | null;
+    wins: string | null;
+    improvement: string | null;
+    execution_grade: string | null;
+  }>(
+    `
+    SELECT
+      day_key,
+      created_at,
+      bias,
+      news_caution,
+      mood,
+      mistakes,
+      wins,
+      improvement,
+      execution_grade
+    FROM daily_closeout
+    WHERE day_key = ?
+    LIMIT 1;
+    `,
+    [dayKey]
+  );
+
+  if (!row) return null;
+
+  return {
+    dayKey: row.day_key,
+    createdAt: row.created_at,
+    bias: row.bias ?? "",
+    newsCaution: (row.news_caution ?? 0) === 1,
+    mood: typeof row.mood === "number" ? row.mood : 0,
+    mistakes: row.mistakes ?? "",
+    wins: row.wins ?? "",
+    improvement: row.improvement ?? "",
+    executionGrade: row.execution_grade ?? "",
+  };
 }
 
 /** ---------------- Strategies ---------------- **/
@@ -357,7 +419,7 @@ export type TradeInsert = {
   strategyId?: string;
   strategyName?: string;
   ruleBreaks?: string;
-  tags?: string; // ✅ Step 19
+  tags?: string;
 };
 
 export async function insertTrade(t: TradeInsert) {
@@ -397,7 +459,7 @@ export type TradeRow = {
   riskR: number | null;
   resultR: number;
   ruleBreaks: string;
-  tags: string; // ✅ Step 19
+  tags: string;
   notes: string;
 };
 
@@ -537,7 +599,6 @@ export async function getTradeById(tradeId: string): Promise<TradeRow | null> {
   };
 }
 
-/** ✅ Step 19: Update tags after trade */
 export async function updateTradeTags(
   tradeId: string,
   tags: string
@@ -549,7 +610,6 @@ export async function updateTradeTags(
   ]);
 }
 
-/** ✅ Step 20: Update notes after trade */
 export async function updateTradeNotes(
   tradeId: string,
   notes: string
