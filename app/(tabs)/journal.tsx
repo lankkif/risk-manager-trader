@@ -272,7 +272,8 @@ export default function JournalTab() {
 
       <View style={{ flexDirection: "row", gap: 10 }}>
         <Pressable
-          onPress={() => router.push("/(tabs)/new-trade")}
+          // ✅ FIX: typed route (no "/(tabs)/")
+          onPress={() => router.push("/new-trade")}
           style={{
             backgroundColor: "#111",
             paddingVertical: 12,
