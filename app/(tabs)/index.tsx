@@ -26,6 +26,10 @@ function pickNum(obj: any, keys: string[], fallback = 0) {
   return fallback;
 }
 
+function isAfterHour(hour24: number) {
+  return new Date().getHours() >= hour24;
+}
+
 export default function StatusTab() {
   const router = useRouter();
 
@@ -55,7 +59,11 @@ export default function StatusTab() {
       const count = pickNum(s, ["tradeCount", "count", "trades", "nTrades"], 0);
 
       // R total could be named many things depending on earlier versions
-      let rTotal = pickNum(s, ["totalR", "sumR", "netR", "total_r", "rTotal"], NaN);
+      let rTotal = pickNum(
+        s,
+        ["totalR", "sumR", "netR", "total_r", "rTotal"],
+        NaN
+      );
 
       // If not present, try compute from avgR * count
       if (!Number.isFinite(rTotal)) {
@@ -88,6 +96,25 @@ export default function StatusTab() {
     if (!gate) return false;
     return gate.mode === "real" && !gate.canTrade && !gate.overrideActive;
   }, [gate]);
+
+  const closeoutMissing = useMemo(() => {
+    if (!gate) return false;
+    return (
+      gate.mode === "real" &&
+      Array.isArray(gate.softWarnings) &&
+      gate.softWarnings.includes("CLOSEOUT_MISSING")
+    );
+  }, [gate]);
+
+  // ✅ Step 17: Closeout auto-nudge (soft reminder only)
+  const showCloseoutNudge = useMemo(() => {
+    if (!gate) return false;
+    if (gate.mode !== "real") return false;
+    if (!closeoutMissing) return false;
+    if (tradeCount <= 0) return false;
+    // After 20:00 local time
+    return isAfterHour(20);
+  }, [gate, closeoutMissing, tradeCount]);
 
   if (loading || !gate) {
     return (
@@ -155,6 +182,39 @@ export default function StatusTab() {
         )}
       </View>
 
+      {/* ✅ Step 17: Closeout reminder banner (soft nudge, no lockout) */}
+      {showCloseoutNudge ? (
+        <View
+          style={{
+            padding: 14,
+            borderWidth: 1,
+            borderRadius: 14,
+            borderColor: "#ffd38a",
+            backgroundColor: "#fff7ea",
+            gap: 8,
+          }}
+        >
+          <Text style={{ fontWeight: "900" }}>🟡 Closeout reminder</Text>
+          <Text style={{ color: "#666" }}>
+            You traded today but haven’t completed Closeout. Do it now to lock in
+            learning and protect discipline.
+          </Text>
+          <Pressable
+            onPress={() => router.push("/(tabs)/closeout")}
+            style={{
+              backgroundColor: "#111",
+              padding: 12,
+              borderRadius: 12,
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ color: "white", fontWeight: "900" }}>
+              Go to Closeout
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {/* Today Card */}
       <View
         style={{
@@ -175,6 +235,12 @@ export default function StatusTab() {
         <Text>
           Win rate: <Text style={{ fontWeight: "900" }}>{pct(winRate)}</Text>
         </Text>
+
+        {closeoutMissing && gate.mode === "real" ? (
+          <Text style={{ color: "#b26a00", fontWeight: "900" }}>
+            ⚠ Closeout missing (soft warning)
+          </Text>
+        ) : null}
       </View>
 
       {/* Actions */}
@@ -193,6 +259,20 @@ export default function StatusTab() {
         </Text>
       </Pressable>
 
+      {/* ✅ Correct route: open Closeout tab (not Journal) */}
+      <Pressable
+        onPress={() => router.push("/(tabs)/closeout")}
+        style={{
+          borderWidth: 1,
+          borderColor: "#ddd",
+          padding: 14,
+          borderRadius: 12,
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ fontWeight: "900" }}>Daily Closeout</Text>
+      </Pressable>
+
       <Pressable
         onPress={() => router.push("/(tabs)/journal")}
         style={{
@@ -203,7 +283,7 @@ export default function StatusTab() {
           alignItems: "center",
         }}
       >
-        <Text style={{ fontWeight: "900" }}>Daily Closeout (Journal)</Text>
+        <Text style={{ fontWeight: "900" }}>Open Journal</Text>
       </Pressable>
 
       <Pressable
