@@ -17,7 +17,6 @@ export async function initDb(): Promise<void> {
   await database.execAsync(SQL_CREATE_TABLES);
 
   // ✅ Step 13.2: Backfill strategy_name for older trades where it's missing.
-  // Keeps dashboards human-friendly even if a strategy is later deleted.
   await database.runAsync(`
     UPDATE trades
     SET strategy_name = (
@@ -150,8 +149,8 @@ export type Strategy = {
   updatedAt: number;
   name: string;
   market: StrategyMarket;
-  styleTags: string; // "scalp,intraday"
-  timeframes: string; // "M5,M15,H1"
+  styleTags: string;
+  timeframes: string;
   description: string;
   checklist: string;
   imageUrl: string;
@@ -236,7 +235,7 @@ export type StrategyStats = {
   strategyId: string;
   strategyName: string;
   tradeCount: number;
-  winRate: number; // 0..1
+  winRate: number;
   avgR: number;
   totalR: number;
 };
@@ -336,8 +335,8 @@ export type TradeRow = {
 };
 
 export type ListTradesParams = {
-  dayKey?: string; // "YYYY-MM-DD"
-  strategyId?: string; // exact strategy_id
+  dayKey?: string;
+  strategyId?: string;
   limit?: number;
   offset?: number;
 };
@@ -410,15 +409,64 @@ export async function listTrades(params: ListTradesParams): Promise<TradeRow[]> 
   }));
 }
 
+export async function getTradeById(tradeId: string): Promise<TradeRow | null> {
+  const database = getDb();
+
+  const row = await database.getFirstAsync<{
+    id: string;
+    created_at: number;
+    strategy_id: string;
+    strategy_name: string;
+    bias: string;
+    session: string;
+    timeframe: string;
+    risk_r: number | null;
+    result_r: number;
+    rule_breaks: string;
+    notes: string;
+  }>(
+    `
+    SELECT
+      id,
+      created_at,
+      COALESCE(strategy_id, '') AS strategy_id,
+      COALESCE(strategy_name, '') AS strategy_name,
+      COALESCE(bias, '') AS bias,
+      COALESCE(session, '') AS session,
+      COALESCE(timeframe, '') AS timeframe,
+      risk_r,
+      result_r,
+      COALESCE(rule_breaks, '') AS rule_breaks,
+      COALESCE(notes, '') AS notes
+    FROM trades
+    WHERE id = ?
+    LIMIT 1;
+    `,
+    [tradeId]
+  );
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    strategyId: row.strategy_id ?? "",
+    strategyName: row.strategy_name ?? "",
+    bias: row.bias ?? "",
+    session: row.session ?? "",
+    timeframe: row.timeframe ?? "",
+    riskR: typeof row.risk_r === "number" ? row.risk_r : null,
+    resultR: typeof row.result_r === "number" ? row.result_r : Number(row.result_r),
+    ruleBreaks: row.rule_breaks ?? "",
+    notes: row.notes ?? "",
+  };
+}
+
 export async function deleteTrade(tradeId: string): Promise<void> {
   const database = getDb();
   await database.runAsync("DELETE FROM trades WHERE id = ?;", [tradeId]);
 }
 
-/**
- * Returns recent trade day keys like ["2026-01-31", "2026-01-30", ...]
- * Uses device local time (important for your daily discipline workflow).
- */
 export async function getRecentTradeDayKeys(limit = 14): Promise<string[]> {
   const database = getDb();
 
@@ -437,15 +485,13 @@ export async function getRecentTradeDayKeys(limit = 14): Promise<string[]> {
   return rows.map((r) => r.day_key).filter(Boolean);
 }
 
-/**
- * Trade stats for a given day (used by Dashboard "Today").
- */
+/** Trade stats for a given day (used by Dashboard "Today"). */
 export type TradeStats = {
   tradeCount: number;
   sumR: number;
   consecutiveLosses: number;
   wins: number;
-  winRate: number; // 0..1
+  winRate: number;
   avgR: number;
   totalR: number;
 };
@@ -503,3 +549,5 @@ export async function getTradeStatsForDay(dayKey: string): Promise<TradeStats> {
     totalR: sumR,
   };
 }
+
+

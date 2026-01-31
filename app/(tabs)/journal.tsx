@@ -231,8 +231,7 @@ export default function JournalTab() {
           <Text style={{ fontWeight: "900" }}>{summary.avgR.toFixed(2)}</Text>
         </Text>
         <Text style={{ color: "#666" }}>
-          Tip: tap a trade to open its strategy. Long-term we’ll add editing and
-          full details.
+          Tap a trade for details. Hold to delete.
         </Text>
       </View>
 
@@ -265,9 +264,13 @@ export default function JournalTab() {
             return (
               <Pressable
                 key={t.id}
-                onPress={() => {
-                  if (t.strategyId) router.push(`/strategy/${t.strategyId}`);
-                }}
+                // ✅ typed-router-safe navigation:
+                onPress={() =>
+                  router.push({
+                    pathname: "/trade/[id]",
+                    params: { id: t.id },
+                  })
+                }
                 onLongPress={() => confirmDelete(t)}
                 style={{
                   borderWidth: 1,
