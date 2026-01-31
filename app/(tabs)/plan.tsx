@@ -8,7 +8,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { getDailyPlan, getSetting, hasDailyPlan, upsertDailyPlan } from "~/db/db";
+import { getDailyPlan, getSetting, upsertDailyPlan } from "~/db/db";
 
 function todayKey() {
   const d = new Date();
@@ -18,236 +18,172 @@ function todayKey() {
   return `${y}-${m}-${day}`;
 }
 
-function toBool(v: string | null, fallback: boolean) {
-  if (v === null) return fallback;
-  return v === "1" || v.toLowerCase() === "true";
-}
-
-function fmtTime(ms: number) {
-  const d = new Date(ms);
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
-}
-
-const BIAS_OPTIONS = ["Bull", "Bear", "Neutral"] as const;
-type BiasOption = (typeof BIAS_OPTIONS)[number];
-
 type SaveState = "idle" | "saving" | "saved";
 
 export default function PlanTab() {
-  const key = useMemo(() => todayKey(), []);
-
+  const dayKey = useMemo(() => todayKey(), []);
   const [loading, setLoading] = useState(true);
-  const [saved, setSaved] = useState(false);
 
-  const [mode, setMode] = useState<"demo" | "real">("demo");
-  const [requireDailyPlan, setRequireDailyPlan] = useState(true);
-
-  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
-
-  const [bias, setBias] = useState<BiasOption | "">("");
+  const [bias, setBias] = useState("");
   const [newsCaution, setNewsCaution] = useState(false);
   const [keyLevels, setKeyLevels] = useState("");
   const [scenarios, setScenarios] = useState("");
 
-  // ✅ Save feedback state
+  const [isRealMode, setIsRealMode] = useState(false);
+
   const [saveState, setSaveState] = useState<SaveState>("idle");
-  const saveResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [appMode, reqPlanRaw] = await Promise.all([
-        getSetting("appMode"),
-        getSetting("requireDailyPlan"),
+      const [planRow, realModeSetting] = await Promise.all([
+        getDailyPlan(dayKey),
+        getSetting("mode"),
       ]);
 
-      setMode(appMode === "real" ? "real" : "demo");
-      setRequireDailyPlan(toBool(reqPlanRaw, true));
+      setIsRealMode((realModeSetting ?? "") === "real");
 
-      const has = await hasDailyPlan(key);
-      setSaved(has);
-
-      const plan = await getDailyPlan(key);
-      if (plan) {
-        setBias((plan.bias as BiasOption) || "");
-        setNewsCaution(plan.newsCaution);
-        setKeyLevels(plan.keyLevels || "");
-        setScenarios(plan.scenarios || "");
-        setLastSavedAt(plan.createdAt || null);
+      if (planRow) {
+        setBias(planRow.bias ?? "");
+        setNewsCaution(!!planRow.newsCaution);
+        setKeyLevels(planRow.keyLevels ?? "");
+        setScenarios(planRow.scenarios ?? "");
       } else {
-        setLastSavedAt(null);
+        setBias("");
+        setNewsCaution(false);
+        setKeyLevels("");
+        setScenarios("");
       }
+
+      setSaveState("idle");
     } finally {
       setLoading(false);
     }
-  }, [key]);
+  }, [dayKey]);
 
   useFocusEffect(
     useCallback(() => {
       refresh();
       return () => {
-        // clear timer on unmount to avoid setState warnings
-        if (saveResetTimer.current) {
-          clearTimeout(saveResetTimer.current);
-          saveResetTimer.current = null;
+        if (saveTimer.current) {
+          clearTimeout(saveTimer.current);
+          saveTimer.current = null;
         }
       };
     }, [refresh])
   );
 
-  async function save() {
-    if (saveState === "saving") return;
+  const canSave = useMemo(() => {
+    if (loading) return false;
+    if (saveState === "saving") return false;
 
-    // clear any previous timer
-    if (saveResetTimer.current) {
-      clearTimeout(saveResetTimer.current);
-      saveResetTimer.current = null;
-    }
+    const hasAny =
+      (bias || "").trim().length > 0 ||
+      (keyLevels || "").trim().length > 0 ||
+      (scenarios || "").trim().length > 0 ||
+      newsCaution;
+
+    return hasAny;
+  }, [loading, saveState, bias, keyLevels, scenarios, newsCaution]);
+
+  const planStatusLabel = useMemo(() => {
+    if (loading) return "Loading…";
+    if (saveState === "saving") return "Saving…";
+    if (saveState === "saved") return "Saved ✅";
+    return "Not saved";
+  }, [loading, saveState]);
+
+  const planStatusColor = useMemo(() => {
+    if (saveState === "saved") return "#0a7a2f";
+    if (saveState === "saving") return "#b26a00";
+    return "#666";
+  }, [saveState]);
+
+  const allowInputs = useMemo(() => {
+    // Demo mode: always allow editing.
+    // Real mode: also allow editing (planning is required).
+    return true;
+  }, []);
+
+  async function savePlan() {
+    if (!canSave) return;
 
     setSaveState("saving");
+    try {
+      await upsertDailyPlan(dayKey, {
+        bias: bias.trim(),
+        newsCaution,
+        keyLevels: keyLevels.trim(),
+        scenarios: scenarios.trim(),
+      });
 
-    await upsertDailyPlan(key, {
-      bias,
-      newsCaution,
-      keyLevels,
-      scenarios,
-    });
-
-    const now = Date.now();
-    setSaved(true);
-    setLastSavedAt(now);
-
-    // ✅ visual confirmation
-    setSaveState("saved");
-
-    // after a moment, return to normal
-    saveResetTimer.current = setTimeout(() => {
+      setSaveState("saved");
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => {
+        setSaveState("idle");
+        saveTimer.current = null;
+      }, 1000);
+    } catch (e) {
+      console.warn("Save plan failed:", e);
       setSaveState("idle");
-      saveResetTimer.current = null;
-    }, 1200);
+    }
   }
 
-  const headerBorder =
-    saved || saveState === "saved" ? "#b7f7c1" : "#ffd38a";
-  const headerBg = saved || saveState === "saved" ? "#f2fff4" : "#fff7ea";
+  const quickBiasOptions = ["Bullish", "Bearish", "Neutral"] as const;
 
-  const buttonText =
-    saveState === "saving"
-      ? "Saving…"
-      : saveState === "saved"
-      ? "Saved ✅"
-      : "Save Plan";
+  const templateLevels = useMemo(() => {
+    return [
+      "Asia High / Asia Low",
+      "EQ / 50% level",
+      "Daily Pivot / Weekly Pivot",
+      "250 / 125 pip zones",
+      "Key S/R (HTF)",
+      "Liquidity pools (swing highs/lows)",
+    ].join("\n");
+  }, []);
 
-  const buttonBg =
-    saveState === "saved" ? "#0a7a2f" : "#111";
+  const templateScenarios = useMemo(() => {
+    return [
+      "If price sweeps Asia High then rejects → look for sell structure.",
+      "If price holds above EQ and makes higher lows → look for buy continuation.",
+      "If news spike occurs → reduce size or stand down (discipline rule).",
+    ].join("\n");
+  }, []);
+
+  const headerSubtitle = useMemo(() => {
+    if (isRealMode) {
+      return "REAL MODE: Plan first. Trade only if rules allow.";
+    }
+    return "DEMO MODE: Build your discipline plan and test flows.";
+  }, [isRealMode]);
 
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: "white" }}
-      contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 160 }}
+      contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 140 }}
       showsVerticalScrollIndicator
+      keyboardShouldPersistTaps="handled"
     >
-      <Text style={{ fontSize: 26, fontWeight: "900" }}>Daily Plan</Text>
+      <View style={{ gap: 6 }}>
+        <Text style={{ fontSize: 26, fontWeight: "900" }}>Daily Plan</Text>
+        <Text style={{ color: "#666" }}>{headerSubtitle}</Text>
+      </View>
 
+      {/* Status card */}
       <View
         style={{
           borderWidth: 1,
-          borderColor: headerBorder,
-          backgroundColor: headerBg,
+          borderColor: "#eee",
           borderRadius: 14,
           padding: 12,
           gap: 6,
-        }}
-      >
-        <Text style={{ fontWeight: "900" }}>
-          {saved ? "✅ Plan saved" : "⚠ Plan not saved yet"}
-        </Text>
-
-        <Text style={{ color: "#666" }}>
-          Mode: <Text style={{ fontWeight: "900" }}>{mode.toUpperCase()}</Text> •
-          Day: <Text style={{ fontWeight: "900" }}>{key}</Text>
-        </Text>
-
-        <Text style={{ color: "#666" }}>
-          Plan required:{" "}
-          <Text style={{ fontWeight: "900" }}>
-            {requireDailyPlan ? "YES" : "NO"}
-          </Text>
-          {lastSavedAt ? (
-            <>
-              {" "}
-              • Last saved:{" "}
-              <Text style={{ fontWeight: "900" }}>
-                {fmtTime(lastSavedAt)}
-              </Text>
-            </>
-          ) : null}
-        </Text>
-
-        <Text style={{ color: "#666" }}>
-          In REAL mode, this plan is your discipline gate (unless override is
-          used).
-        </Text>
-      </View>
-
-      {/* Bias */}
-      <View
-        style={{
-          borderWidth: 1,
-          borderColor: "#eee",
-          borderRadius: 14,
-          padding: 12,
-          gap: 10,
           backgroundColor: "#fafafa",
         }}
       >
-        <Text style={{ fontWeight: "900" }}>Bias</Text>
-        <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-          {BIAS_OPTIONS.map((b) => {
-            const active = bias === b;
-            return (
-              <Pressable
-                key={b}
-                onPress={() => setBias(b)}
-                style={{
-                  paddingVertical: 10,
-                  paddingHorizontal: 14,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: active ? "#111" : "#ddd",
-                  backgroundColor: active ? "#111" : "white",
-                }}
-              >
-                <Text
-                  style={{
-                    color: active ? "white" : "#111",
-                    fontWeight: "900",
-                  }}
-                >
-                  {b}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <Text style={{ color: "#666" }}>
-          Pick the day’s higher-timeframe direction (or Neutral).
-        </Text>
-      </View>
+        <Text style={{ fontWeight: "900" }}>Today</Text>
+        <Text style={{ color: "#666" }}>{dayKey}</Text>
 
-      {/* News Caution */}
-      <View
-        style={{
-          borderWidth: 1,
-          borderColor: "#eee",
-          borderRadius: 14,
-          padding: 12,
-          gap: 10,
-          backgroundColor: "#fafafa",
-        }}
-      >
         <View
           style={{
             flexDirection: "row",
@@ -255,96 +191,206 @@ export default function PlanTab() {
             alignItems: "center",
           }}
         >
-          <Text style={{ fontWeight: "900" }}>News caution</Text>
+          <Text style={{ color: planStatusColor, fontWeight: "900" }}>
+            {planStatusLabel}
+          </Text>
+
+          <Pressable
+            onPress={refresh}
+            style={{
+              borderWidth: 1,
+              borderColor: "#ddd",
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: 999,
+              backgroundColor: "white",
+            }}
+          >
+            <Text style={{ fontWeight: "900" }}>{loading ? "…" : "Refresh"}</Text>
+          </Pressable>
+        </View>
+
+        <Text style={{ color: "#666" }}>
+          Goal: write a plan you can follow without emotion.
+        </Text>
+      </View>
+
+      {/* Bias */}
+      <View style={card}>
+        <Text style={{ fontWeight: "900" }}>Bias</Text>
+
+        <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+          {quickBiasOptions.map((b) => {
+            const active = (bias || "").trim().toLowerCase() === b.toLowerCase();
+            return (
+              <Pressable
+                key={b}
+                onPress={() => setBias(b)}
+                disabled={!allowInputs}
+                style={{
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: active ? "#111" : "#ddd",
+                  backgroundColor: active ? "#111" : "white",
+                  opacity: allowInputs ? 1 : 0.6,
+                }}
+              >
+                <Text style={{ fontWeight: "900", color: active ? "white" : "#111" }}>
+                  {b}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <TextInput
+          value={bias}
+          onChangeText={setBias}
+          placeholder="Optional custom bias notes…"
+          editable={allowInputs}
+          style={input}
+        />
+      </View>
+
+      {/* News Caution */}
+      <View style={card}>
+        <Text style={{ fontWeight: "900" }}>News Caution</Text>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <Text style={{ color: "#666", flex: 1 }}>
+            Turn on if high-impact news may cause spikes (CPI, NFP, FOMC, etc.).
+          </Text>
           <Switch value={newsCaution} onValueChange={setNewsCaution} />
         </View>
-        <Text style={{ color: "#666" }}>
-          Toggle ON if high-impact news could wreck your execution.
-        </Text>
       </View>
 
       {/* Key Levels */}
-      <View
-        style={{
-          borderWidth: 1,
-          borderColor: "#eee",
-          borderRadius: 14,
-          padding: 12,
-          gap: 10,
-          backgroundColor: "#fafafa",
-        }}
-      >
-        <Text style={{ fontWeight: "900" }}>Key Levels</Text>
+      <View style={card}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10 }}>
+          <Text style={{ fontWeight: "900" }}>Key Levels</Text>
+          <Pressable
+            onPress={() => {
+              if (!keyLevels.trim()) setKeyLevels(templateLevels);
+            }}
+            style={{
+              borderWidth: 1,
+              borderColor: "#ddd",
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: 999,
+              backgroundColor: "white",
+            }}
+          >
+            <Text style={{ fontWeight: "900" }}>Template</Text>
+          </Pressable>
+        </View>
+
         <TextInput
           value={keyLevels}
           onChangeText={setKeyLevels}
-          placeholder="Asia high/low, pivots, EQ, 250/125 zones, HTF levels…"
+          placeholder="Write key levels for today…"
+          editable={allowInputs}
           multiline
-          style={{
-            minHeight: 110,
-            borderWidth: 1,
-            borderColor: "#ddd",
-            borderRadius: 12,
-            padding: 12,
-            backgroundColor: "white",
-            textAlignVertical: "top",
-          }}
+          style={[input, { minHeight: 130, textAlignVertical: "top" }]}
         />
+
+        <Text style={{ color: "#666" }}>
+          Tip: list only the most important levels you will respect.
+        </Text>
       </View>
 
       {/* Scenarios */}
-      <View
-        style={{
-          borderWidth: 1,
-          borderColor: "#eee",
-          borderRadius: 14,
-          padding: 12,
-          gap: 10,
-          backgroundColor: "#fafafa",
-        }}
-      >
-        <Text style={{ fontWeight: "900" }}>If-Then Scenarios</Text>
+      <View style={card}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10 }}>
+          <Text style={{ fontWeight: "900" }}>If–Then Scenarios</Text>
+          <Pressable
+            onPress={() => {
+              if (!scenarios.trim()) setScenarios(templateScenarios);
+            }}
+            style={{
+              borderWidth: 1,
+              borderColor: "#ddd",
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: 999,
+              backgroundColor: "white",
+            }}
+          >
+            <Text style={{ fontWeight: "900" }}>Template</Text>
+          </Pressable>
+        </View>
+
         <TextInput
           value={scenarios}
           onChangeText={setScenarios}
-          placeholder="If we sweep Asia High and reject → look for sell…"
+          placeholder="Write your scenarios for today…"
+          editable={allowInputs}
           multiline
-          style={{
-            minHeight: 140,
-            borderWidth: 1,
-            borderColor: "#ddd",
-            borderRadius: 12,
-            padding: 12,
-            backgroundColor: "white",
-            textAlignVertical: "top",
-          }}
+          style={[input, { minHeight: 140, textAlignVertical: "top" }]}
         />
+
+        <Text style={{ color: "#666" }}>
+          Example: “If sweep happens, I wait for confirmation (no impulse).”
+        </Text>
       </View>
 
       {/* Save */}
-      <Pressable
-        onPress={save}
-        disabled={loading || saveState === "saving"}
-        style={{
-          backgroundColor: buttonBg,
-          padding: 14,
-          borderRadius: 12,
-          alignItems: "center",
-          opacity: loading ? 0.6 : 1,
-        }}
-      >
-        <Text style={{ color: "white", fontWeight: "900" }}>
-          {loading ? "Loading…" : buttonText}
-        </Text>
-      </Pressable>
+      <View style={{ gap: 10 }}>
+        <Pressable
+          onPress={savePlan}
+          disabled={!canSave}
+          style={{
+            backgroundColor: canSave ? "#111" : "#bbb",
+            padding: 14,
+            borderRadius: 12,
+            alignItems: "center",
+          }}
+        >
+          <Text style={{ color: "white", fontWeight: "900" }}>
+            {saveState === "saving" ? "Saving…" : "Save Plan"}
+          </Text>
+        </Pressable>
 
-      <Text style={{ color: "#666" }}>
-        {loading
-          ? "Loading your saved plan…"
-          : saveState === "saved"
-          ? "Saved. You're good to trade (if your gate rules allow it)."
-          : "Tip: Keep it short. The goal is discipline, not essays."}
-      </Text>
+        <Text style={{ color: "#666" }}>
+          {saveState === "saved"
+            ? "Plan saved. Now you trade like a machine."
+            : "Write a plan that removes emotion and makes your actions predictable."}
+        </Text>
+      </View>
+
+      {/* Small footer */}
+      <View style={{ gap: 6 }}>
+        <Text style={{ fontWeight: "900" }}>How this will evolve</Text>
+        <Text style={{ color: "#666" }}>
+          Later we’ll add: plan lock, required checklist, session windows, discipline score,
+          and auto-insights from your trades.
+        </Text>
+      </View>
     </ScrollView>
   );
 }
+
+const card = {
+  borderWidth: 1,
+  borderColor: "#eee",
+  borderRadius: 14,
+  padding: 12,
+  gap: 10,
+  backgroundColor: "#fafafa",
+} as const;
+
+const input = {
+  borderWidth: 1,
+  borderColor: "#ddd",
+  borderRadius: 12,
+  padding: 12,
+  backgroundColor: "white",
+} as const;

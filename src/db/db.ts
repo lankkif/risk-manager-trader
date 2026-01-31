@@ -214,7 +214,7 @@ export async function hasDailyCloseout(dayKey: string): Promise<boolean> {
   return (row?.c ?? 0) > 0;
 }
 
-/** ✅ Step 22: Load closeout for edit */
+/** ✅ Load closeout for edit */
 export async function getDailyCloseout(
   dayKey: string
 ): Promise<DailyCloseoutRow | null> {
@@ -291,14 +291,12 @@ export type StrategyUpsertInput = {
   imageUrl?: string;
 };
 
-export async function upsertStrategy(
-  input: StrategyUpsertInput
-): Promise<string> {
+export async function upsertStrategy(input: StrategyUpsertInput): Promise<string> {
   const database = getDb();
   const now = Date.now();
 
   const id = input.id ?? makeId();
-  const createdAtFallback = now;
+  const createdAt = input.id ? now : now;
 
   await database.runAsync(
     `INSERT OR REPLACE INTO strategies
@@ -307,7 +305,7 @@ export async function upsertStrategy(
     [
       id,
       id,
-      createdAtFallback,
+      createdAt,
       now,
       input.name.trim(),
       input.market,
@@ -366,6 +364,10 @@ export type StrategyStats = {
   totalR: number;
 };
 
+/**
+ * ✅ Uses strategy table where possible (human-friendly names),
+ * but also supports legacy trades where strategy_name was stored directly.
+ */
 export async function getStrategyStats(): Promise<Record<string, StrategyStats>> {
   const database = getDb();
 
@@ -709,4 +711,94 @@ export async function getTradeStatsForDay(dayKey: string): Promise<TradeStats> {
   };
 }
 
+/**
+ * ✅ Step 27 helper: list trades from the last N days (used by Journal windows like 7/14/30).
+ * This does NOT replace listTrades(); it’s just a convenience wrapper.
+ */
+export async function listTradesRecent(
+  days: number,
+  limit = 400
+): Promise<TradeRow[]> {
+  const database = getDb();
+  const now = Date.now();
+  const startMs = now - Math.max(1, days) * 24 * 60 * 60 * 1000;
 
+  const rows = await database.getAllAsync<{
+    id: string;
+    created_at: number;
+    strategy_id: string;
+    strategy_name: string;
+    bias: string;
+    session: string;
+    timeframe: string;
+    risk_r: number | null;
+    result_r: number;
+    rule_breaks: string;
+    tags: string;
+    notes: string;
+  }>(
+    `
+    SELECT
+      id,
+      created_at,
+      COALESCE(strategy_id, '') AS strategy_id,
+      COALESCE(strategy_name, '') AS strategy_name,
+      COALESCE(bias, '') AS bias,
+      COALESCE(session, '') AS session,
+      COALESCE(timeframe, '') AS timeframe,
+      risk_r,
+      result_r,
+      COALESCE(rule_breaks, '') AS rule_breaks,
+      COALESCE(tags, '') AS tags,
+      COALESCE(notes, '') AS notes
+    FROM trades
+    WHERE created_at >= ?
+    ORDER BY created_at DESC
+    LIMIT ?;
+    `,
+    [startMs, limit]
+  );
+
+  return rows.map((r) => ({
+    id: r.id,
+    createdAt: r.created_at,
+    strategyId: r.strategy_id ?? "",
+    strategyName: r.strategy_name ?? "",
+    bias: r.bias ?? "",
+    session: r.session ?? "",
+    timeframe: r.timeframe ?? "",
+    riskR: typeof r.risk_r === "number" ? r.risk_r : null,
+    resultR: typeof r.result_r === "number" ? r.result_r : Number(r.result_r),
+    ruleBreaks: r.rule_breaks ?? "",
+    tags: r.tags ?? "",
+    notes: r.notes ?? "",
+  }));
+}
+
+/**
+ * ✅ Step 27 helper: get distinct trade day-keys within the last N days.
+ * Useful for grouping the Journal list by day.
+ */
+export async function getRecentTradeDayKeysForWindow(
+  days: number,
+  limit = 30
+): Promise<string[]> {
+  const database = getDb();
+  const now = Date.now();
+  const startMs = now - Math.max(1, days) * 24 * 60 * 60 * 1000;
+
+  const rows = await database.getAllAsync<{ day_key: string }>(
+    `
+    SELECT
+      strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') AS day_key
+    FROM trades
+    WHERE created_at >= ?
+    GROUP BY day_key
+    ORDER BY day_key DESC
+    LIMIT ?;
+    `,
+    [startMs, limit]
+  );
+
+  return rows.map((r) => r.day_key).filter(Boolean);
+}

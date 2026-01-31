@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS trades (
   risk_r REAL,
   result_r REAL NOT NULL,
   rule_breaks TEXT,
-  tags TEXT,              -- ✅ Step 19: comma separated tags like "A_PLUS,MISTAKE"
+  tags TEXT,                     -- ✅ NEW
   notes TEXT
 );
 
