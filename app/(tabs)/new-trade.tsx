@@ -1,5 +1,5 @@
 import { useFocusEffect } from "@react-navigation/native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -19,6 +19,8 @@ export default function NewTradeTab() {
     () => (params?.strategyId ? String(params.strategyId) : ""),
     [params]
   );
+
+  const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -70,7 +72,9 @@ export default function NewTradeTab() {
         ? sList.some((s) => s.id === requestedStrategyId)
         : false;
 
-      const existsCurrent = strategyId ? sList.some((s) => s.id === strategyId) : false;
+      const existsCurrent = strategyId
+        ? sList.some((s) => s.id === strategyId)
+        : false;
 
       const nextId =
         (existsRequested && requestedStrategyId) ||
@@ -233,6 +237,35 @@ export default function NewTradeTab() {
           ))}
         </View>
 
+        {!res.requirements?.planDone ? (
+          <Pressable
+            onPress={() => router.push("/(tabs)/plan")}
+            style={{
+              padding: 14,
+              borderRadius: 12,
+              backgroundColor: "#111",
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ fontWeight: "900", color: "white" }}>Go to Plan</Text>
+          </Pressable>
+        ) : null}
+
+        {res.mode === "real" ? (
+          <Pressable
+            onPress={() => router.push("/(tabs)/explore")}
+            style={{
+              padding: 14,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: "#ddd",
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ fontWeight: "900" }}>Go to Admin (Override)</Text>
+          </Pressable>
+        ) : null}
+
         <Pressable
           onPress={refresh}
           style={{
@@ -277,7 +310,8 @@ export default function NewTradeTab() {
               backgroundColor: toastKind === "success" ? "#111" : "#b00020",
               paddingVertical: 10,
               paddingHorizontal: 12,
-              borderRadius: 12,
+              borderRadius: 999,
+              alignItems: "center",
             }}
           >
             <Text style={{ color: "white", fontWeight: "900" }}>{toastText}</Text>
@@ -286,156 +320,179 @@ export default function NewTradeTab() {
       ) : null}
 
       <ScrollView
-        style={{ flex: 1, backgroundColor: "white" }}
-        contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}
+        contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 220 }}
+        showsVerticalScrollIndicator
       >
-        {/* Mode / Gate Banner */}
-        <View
-          style={{
-            padding: 12,
-            borderRadius: 14,
-            borderWidth: 1,
-            borderColor:
-              res.mode === "demo"
-                ? "#b7d7ff"
-                : res.overrideActive
-                ? "#ffd38a"
-                : "#b7f7c1",
-            backgroundColor:
-              res.mode === "demo"
-                ? "#f2f8ff"
-                : res.overrideActive
-                ? "#fff7ea"
-                : "#f2fff4",
-            gap: 6,
-          }}
-        >
-          <Text style={{ fontWeight: "900" }}>
-            {res.mode === "demo"
-              ? "🧪 DEMO MODE (Gate bypassed)"
-              : res.overrideActive
-              ? "⚠ REAL MODE: OVERRIDE ACTIVE"
-              : "✅ REAL MODE: Allowed"}
-          </Text>
-          {res.overrideActive ? (
-            <Text style={{ color: "#666" }}>
-              This session is a rule-break (logged as OVERRIDE_USED).
-            </Text>
-          ) : null}
-        </View>
+        <Text style={{ fontSize: 26, fontWeight: "900" }}>New Trade</Text>
 
-        {/* ✅ Step 16: Soft warning banner (NO lockout) */}
-        {hasCloseoutMissingWarning ? (
+        {res.mode === "real" ? (
           <View
             style={{
-              padding: 12,
-              borderRadius: 14,
               borderWidth: 1,
-              borderColor: "#ffd38a",
-              backgroundColor: "#fff7ea",
+              borderColor: res.overrideActive ? "#ffd38a" : "#eee",
+              backgroundColor: res.overrideActive ? "#fff7ea" : "#fafafa",
+              borderRadius: 14,
+              padding: 12,
               gap: 6,
             }}
           >
-            <Text style={{ fontWeight: "900" }}>⚠ Closeout missing</Text>
-            <Text style={{ color: "#666" }}>
-              You can still trade, but trades will be logged with{" "}
-              <Text style={{ fontWeight: "900" }}>CLOSEOUT_MISSING</Text>.
-              Complete Closeout when you’re done for the day.
+            <Text style={{ fontWeight: "900" }}>
+              {res.overrideActive ? "⚠ Override Active" : "✅ Gate OK"}
             </Text>
+            <Text style={{ color: "#666" }}>
+              Trades today: <Text style={{ fontWeight: "900" }}>{res.stats.tradeCount}</Text> • Total R:{" "}
+              <Text style={{ fontWeight: "900" }}>{res.stats.sumR.toFixed(2)}R</Text>
+            </Text>
+            {hasCloseoutMissingWarning ? (
+              <Text style={{ color: "#666" }}>
+                Closeout missing is a warning only. Trades will log CLOSEOUT_MISSING.
+              </Text>
+            ) : null}
           </View>
-        ) : null}
-
-        <Text style={{ fontSize: 24, fontWeight: "900" }}>New Trade Log</Text>
-
-        <Text style={{ color: "#666" }}>
-          Pick a strategy first. This is how we build stats + fix what’s not
-          working.
-        </Text>
-
-        <Text style={{ fontWeight: "800" }}>Strategy</Text>
-        {strategies.length === 0 ? (
-          <Text style={{ color: "#b00020" }}>
-            No strategies yet. Add one in Admin → Strategy Manager.
-          </Text>
         ) : (
-          <View style={{ gap: 8 }}>
-            {strategies.slice(0, 6).map((s) => (
-              <Pressable
-                key={s.id}
-                onPress={() => setStrategyId(s.id)}
-                style={{
-                  padding: 12,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: s.id === strategyId ? "#111" : "#ddd",
-                  backgroundColor: s.id === strategyId ? "#111" : "white",
-                }}
-              >
-                <Text
-                  style={{
-                    color: s.id === strategyId ? "white" : "#111",
-                    fontWeight: "900",
-                  }}
-                >
-                  {s.name}
-                </Text>
-                <Text style={{ color: s.id === strategyId ? "#ddd" : "#666" }}>
-                  {s.market.toUpperCase()} • {s.styleTags || "—"} •{" "}
-                  {s.timeframes || "—"}
-                </Text>
-              </Pressable>
-            ))}
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: "#eee",
+              backgroundColor: "#fafafa",
+              borderRadius: 14,
+              padding: 12,
+              gap: 6,
+            }}
+          >
+            <Text style={{ fontWeight: "900" }}>DEMO mode</Text>
+            <Text style={{ color: "#666" }}>
+              Gate bypassed so you can build & test freely.
+            </Text>
           </View>
         )}
 
-        <Text style={{ fontWeight: "800", marginTop: 6 }}>Session</Text>
-        <Row>
-          <Chip text="Asia" active={session === "Asia"} onPress={() => setSession("Asia")} />
-          <Chip text="London" active={session === "London"} onPress={() => setSession("London")} />
-          <Chip text="NY" active={session === "NY"} onPress={() => setSession("NY")} />
-        </Row>
+        {/* Strategy select */}
+        <View style={{ gap: 6 }}>
+          <Text style={{ fontWeight: "900" }}>Strategy</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {strategies.map((s) => {
+              const active = s.id === strategyId;
+              return (
+                <Pressable
+                  key={s.id}
+                  onPress={() => setStrategyId(s.id)}
+                  style={{
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: active ? "#111" : "#ddd",
+                    backgroundColor: active ? "#111" : "white",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: active ? "white" : "#111",
+                      fontWeight: "900",
+                    }}
+                  >
+                    {s.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
 
-        <Text style={{ fontWeight: "800" }}>Timeframe</Text>
-        <Row>
-          <Chip text="M5" active={timeframe === "M5"} onPress={() => setTimeframe("M5")} />
-          <Chip text="M15" active={timeframe === "M15"} onPress={() => setTimeframe("M15")} />
-          <Chip text="H1" active={timeframe === "H1"} onPress={() => setTimeframe("H1")} />
-        </Row>
+        <View style={{ gap: 6 }}>
+          <Text style={{ fontWeight: "900" }}>Session</Text>
+          <TextInput
+            value={session}
+            onChangeText={setSession}
+            placeholder="London / NY / Asia"
+            style={{
+              borderWidth: 1,
+              borderColor: "#ddd",
+              borderRadius: 12,
+              padding: 12,
+              backgroundColor: "white",
+            }}
+          />
+        </View>
 
-        <Text style={{ fontWeight: "800" }}>Bias</Text>
-        <Row>
-          <Chip text="Bull" active={bias === "Bull"} onPress={() => setBias("Bull")} />
-          <Chip text="Bear" active={bias === "Bear"} onPress={() => setBias("Bear")} />
-          <Chip text="Neutral" active={bias === "Neutral"} onPress={() => setBias("Neutral")} />
-        </Row>
+        <View style={{ gap: 6 }}>
+          <Text style={{ fontWeight: "900" }}>Timeframe</Text>
+          <TextInput
+            value={timeframe}
+            onChangeText={setTimeframe}
+            placeholder="M5 / M15 / H1"
+            style={{
+              borderWidth: 1,
+              borderColor: "#ddd",
+              borderRadius: 12,
+              padding: 12,
+              backgroundColor: "white",
+            }}
+          />
+        </View>
 
-        <Text style={{ fontWeight: "800" }}>Result (R)</Text>
-        <TextInput
-          value={resultR}
-          onChangeText={setResultR}
-          placeholder="+1 or -1.5"
-          keyboardType="numeric"
-          style={inputStyle}
-        />
+        <View style={{ gap: 6 }}>
+          <Text style={{ fontWeight: "900" }}>Bias</Text>
+          <TextInput
+            value={bias}
+            onChangeText={setBias}
+            placeholder="Bull / Bear / Neutral"
+            style={{
+              borderWidth: 1,
+              borderColor: "#ddd",
+              borderRadius: 12,
+              padding: 12,
+              backgroundColor: "white",
+            }}
+          />
+        </View>
 
-        <Text style={{ fontWeight: "800" }}>Notes (optional)</Text>
-        <TextInput
-          value={note}
-          onChangeText={setNote}
-          placeholder="What happened? Any rule breaks? Emotions?"
-          style={[inputStyle, { height: 90, textAlignVertical: "top" }]}
-          multiline
-        />
+        <View style={{ gap: 6 }}>
+          <Text style={{ fontWeight: "900" }}>Result (R)</Text>
+          <TextInput
+            value={resultR}
+            onChangeText={setResultR}
+            placeholder="+1 / -1.5"
+            keyboardType="default"
+            style={{
+              borderWidth: 1,
+              borderColor: "#ddd",
+              borderRadius: 12,
+              padding: 12,
+              backgroundColor: "white",
+            }}
+          />
+        </View>
+
+        <View style={{ gap: 6 }}>
+          <Text style={{ fontWeight: "900" }}>Notes</Text>
+          <TextInput
+            value={note}
+            onChangeText={setNote}
+            placeholder="Why this trade? What did you do right/wrong?"
+            multiline
+            style={{
+              minHeight: 110,
+              borderWidth: 1,
+              borderColor: "#ddd",
+              borderRadius: 12,
+              padding: 12,
+              backgroundColor: "white",
+              textAlignVertical: "top",
+            }}
+          />
+        </View>
 
         <Pressable
           onPress={logTrade}
-          disabled={strategies.length === 0 || saving}
+          disabled={saving}
           style={{
-            backgroundColor: strategies.length === 0 || saving ? "#ddd" : "#111",
+            backgroundColor: "#111",
             padding: 14,
             borderRadius: 12,
             alignItems: "center",
-            marginTop: 6,
+            opacity: saving ? 0.6 : 1,
           }}
         >
           <Text style={{ color: "white", fontWeight: "900" }}>
@@ -446,10 +503,10 @@ export default function NewTradeTab() {
         <Pressable
           onPress={refresh}
           style={{
-            padding: 14,
-            borderRadius: 12,
             borderWidth: 1,
             borderColor: "#ddd",
+            padding: 14,
+            borderRadius: 12,
             alignItems: "center",
           }}
         >
@@ -459,47 +516,3 @@ export default function NewTradeTab() {
     </View>
   );
 }
-
-function Row({ children }: { children: React.ReactNode }) {
-  return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-      {children}
-    </View>
-  );
-}
-
-function Chip({
-  text,
-  active,
-  onPress,
-}: {
-  text: string;
-  active: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={{
-        paddingVertical: 10,
-        paddingHorizontal: 12,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: active ? "#111" : "#ddd",
-        backgroundColor: active ? "#111" : "white",
-      }}
-    >
-      <Text style={{ color: active ? "white" : "#111", fontWeight: "900" }}>
-        {text}
-      </Text>
-    </Pressable>
-  );
-}
-
-const inputStyle = {
-  borderWidth: 1,
-  borderColor: "#ddd",
-  borderRadius: 12,
-  padding: 12,
-  backgroundColor: "white",
-} as const;

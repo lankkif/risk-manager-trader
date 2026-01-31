@@ -17,6 +17,11 @@ export type GateResult = {
   // ✅ Step 15: non-blocking discipline nudges (NO lockout)
   softWarnings: string[];
 
+  requirements: {
+    planDone: boolean;
+    closeoutDone: boolean;
+  };
+
   stats: {
     tradeCount: number;
     sumR: number;
@@ -113,6 +118,7 @@ export async function evaluateGate(): Promise<GateResult> {
       overrideUntilMs: 0,
       overrideCooldownUntilMs,
       softWarnings: [],
+      requirements: { planDone: true, closeoutDone: true },
       stats,
       settings,
     };
@@ -138,7 +144,10 @@ export async function evaluateGate(): Promise<GateResult> {
   }
 
   // Hard rules (existing)
-  if (settings.maxTradesPerDay > 0 && stats.tradeCount >= settings.maxTradesPerDay) {
+  if (
+    settings.maxTradesPerDay > 0 &&
+    stats.tradeCount >= settings.maxTradesPerDay
+  ) {
     reasons.push(`Max trades hit (${stats.tradeCount}/${settings.maxTradesPerDay}).`);
   }
 
@@ -167,6 +176,7 @@ export async function evaluateGate(): Promise<GateResult> {
     overrideUntilMs,
     overrideCooldownUntilMs,
     softWarnings,
+    requirements: { planDone, closeoutDone },
     stats,
     settings,
   };
