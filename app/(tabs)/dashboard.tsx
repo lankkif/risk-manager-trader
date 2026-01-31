@@ -15,17 +15,6 @@ function pct(x: number) {
   return `${Math.round((x || 0) * 100)}%`;
 }
 
-function shortId(id: string, n = 6) {
-  const s = String(id || "");
-  return s.length > n ? s.slice(0, n) : s;
-}
-
-function strategyLabel(name: string, id: string) {
-  const cleanName = (name || "").trim();
-  if (cleanName) return cleanName;
-  return `Strategy ${shortId(id)}`;
-}
-
 function pickNum(obj: any, keys: string[], fallback = 0) {
   for (const k of keys) {
     const v = obj?.[k];
@@ -35,13 +24,16 @@ function pickNum(obj: any, keys: string[], fallback = 0) {
   return fallback;
 }
 
-type StrategyRow = {
-  id: string;
-  name?: string;
-  market?: string;
-  styleTags?: string;
-  timeframes?: string;
-};
+function shortId(id: string, n = 6) {
+  const s = String(id || "");
+  return s.length > n ? s.slice(0, n) : s;
+}
+
+function strategyLabel(name: string, id: string) {
+  const clean = (name || "").trim();
+  if (clean) return clean;
+  return `Strategy ${shortId(id)}`;
+}
 
 export default function DashboardTab() {
   const [loading, setLoading] = useState(true);
@@ -50,7 +42,7 @@ export default function DashboardTab() {
   const [todayTotalR, setTodayTotalR] = useState(0);
   const [todayWinRate, setTodayWinRate] = useState(0);
 
-  // from getStrategyStats(): { [strategyId]: { tradeCount, winRate, avgR, totalR, ... } }
+  // from getStrategyStats(): { [strategyId]: { strategyName, tradeCount, winRate, avgR, totalR, ... } }
   const [statsById, setStatsById] = useState<Record<string, any>>({});
 
   const refresh = useCallback(async () => {
@@ -117,12 +109,8 @@ export default function DashboardTab() {
       };
     });
 
-    // Only show strategies that have at least 1 trade logged
     const used = rows.filter((r) => r.tradeCount > 0);
-
-    // Sort by Total R desc
     used.sort((a, b) => b.totalR - a.totalR);
-
     return used;
   }, [statsById]);
 
@@ -148,45 +136,48 @@ export default function DashboardTab() {
       contentContainerStyle={{
         padding: 16,
         gap: 12,
-        paddingBottom: 40,
+        paddingBottom: 160, // ✅ more space so it scrolls past the bottom tabs
       }}
     >
-      <Text style={{ fontSize: 24, fontWeight: "900" }}>Dashboard</Text>
+      <Text style={{ fontSize: 28, fontWeight: "900" }}>Stats</Text>
 
-      {/* Today */}
+      {/* Today Summary */}
       <View
         style={{
+          padding: 14,
           borderWidth: 1,
           borderColor: "#eee",
-          borderRadius: 16,
-          padding: 14,
-          gap: 6,
+          borderRadius: 14,
+          gap: 8,
         }}
       >
-        <Text style={{ fontSize: 16, fontWeight: "900" }}>Today</Text>
-        <Text style={{ color: "#666" }}>
-          Trades: <Text style={{ fontWeight: "900", color: "#111" }}>{todayTrades}</Text>{" "}
-          • Total R:{" "}
-          <Text style={{ fontWeight: "900", color: "#111" }}>
-            {todayTotalR.toFixed(2)}
-          </Text>{" "}
-          • Win:{" "}
-          <Text style={{ fontWeight: "900", color: "#111" }}>{pct(todayWinRate)}</Text>
+        <Text style={{ fontWeight: "900", fontSize: 16 }}>Today</Text>
+        <Text>
+          Trades: <Text style={{ fontWeight: "900" }}>{todayTrades}</Text>
+        </Text>
+        <Text>
+          Total R:{" "}
+          <Text style={{ fontWeight: "900" }}>{todayTotalR.toFixed(2)}</Text>
+        </Text>
+        <Text>
+          Win rate:{" "}
+          <Text style={{ fontWeight: "900" }}>{pct(todayWinRate)}</Text>
         </Text>
       </View>
 
       {/* Insight */}
       <View
         style={{
+          padding: 14,
           borderWidth: 1,
           borderColor: "#eee",
-          borderRadius: 16,
-          padding: 14,
+          borderRadius: 14,
           gap: 6,
+          backgroundColor: "#fafafa",
         }}
       >
-        <Text style={{ fontSize: 16, fontWeight: "900" }}>Insight</Text>
-        <Text style={{ color: "#666", lineHeight: 20 }}>{insight}</Text>
+        <Text style={{ fontWeight: "900" }}>Coach Note</Text>
+        <Text style={{ color: "#333" }}>{insight}</Text>
       </View>
 
       {/* Top Strategies */}
@@ -216,6 +207,9 @@ export default function DashboardTab() {
                 Trades: {r.tradeCount} • Win: {pct(r.winRate)} • Avg R:{" "}
                 {r.avgR.toFixed(2)} • Total R: {r.totalR.toFixed(2)}
               </Text>
+              {!!r.strategyName?.trim() && (
+                <Text style={{ color: "#999" }}>ID: {shortId(r.strategyId, 10)}</Text>
+              )}
             </View>
           ))
         )}
@@ -246,6 +240,9 @@ export default function DashboardTab() {
                 Trades: {r.tradeCount} • Win: {pct(r.winRate)} • Avg R:{" "}
                 {r.avgR.toFixed(2)} • Total R: {r.totalR.toFixed(2)}
               </Text>
+              {!!r.strategyName?.trim() && (
+                <Text style={{ color: "#999" }}>ID: {shortId(r.strategyId, 10)}</Text>
+              )}
             </View>
           ))
         )}
