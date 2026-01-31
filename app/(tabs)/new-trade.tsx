@@ -2,6 +2,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Animated,
   Pressable,
   ScrollView,
@@ -47,6 +48,15 @@ export default function NewTradeTab() {
     [strategies, strategyId]
   );
 
+  const hasCloseoutMissingWarning = useMemo(() => {
+    if (!res) return false;
+    return (
+      res.mode === "real" &&
+      Array.isArray(res.softWarnings) &&
+      res.softWarnings.includes("CLOSEOUT_MISSING")
+    );
+  }, [res]);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -54,16 +64,13 @@ export default function NewTradeTab() {
       setRes(r);
       setStrategies(sList);
 
-      // ✅ Step 13.1:
-      // If we navigated here from Strategy Detail with a strategyId param,
+      // ✅ If we navigated here from Strategy Detail with a strategyId param,
       // preselect it (if it exists). Otherwise keep current selection or default to first.
       const existsRequested = requestedStrategyId
         ? sList.some((s) => s.id === requestedStrategyId)
         : false;
 
-      const existsCurrent = strategyId
-        ? sList.some((s) => s.id === strategyId)
-        : false;
+      const existsCurrent = strategyId ? sList.some((s) => s.id === strategyId) : false;
 
       const nextId =
         (existsRequested && requestedStrategyId) ||
@@ -114,15 +121,15 @@ export default function NewTradeTab() {
     return v;
   }
 
-  async function logTrade() {
-    if (!res) return;
-    if (saving) return;
+  function buildRuleBreaks() {
+    const flags: string[] = [];
+    if (res?.mode === "real" && res.overrideActive) flags.push("OVERRIDE_USED");
+    if (hasCloseoutMissingWarning) flags.push("CLOSEOUT_MISSING");
+    return flags.join(",");
+  }
 
-    const locked = res.mode === "real" && !res.canTrade && !res.overrideActive;
-    if (locked) {
-      showToast("error", "Locked by rules. Complete your requirements first.");
-      return;
-    }
+  async function doSaveTrade() {
+    if (!res) return;
 
     if (strategies.length === 0 || !selectedStrategy) {
       showToast("error", "Add a strategy first in Admin.");
@@ -144,9 +151,8 @@ export default function NewTradeTab() {
         timeframe,
         bias,
         strategyId: selectedStrategy.id,
-        strategyName: selectedStrategy.name, // ✅ snapshot name for fallback if strategy is deleted later
-        ruleBreaks:
-          res.mode === "real" && res.overrideActive ? "OVERRIDE_USED" : "",
+        strategyName: selectedStrategy.name, // snapshot name for fallback if strategy is deleted later
+        ruleBreaks: buildRuleBreaks(),
       });
 
       setNote("");
@@ -160,6 +166,39 @@ export default function NewTradeTab() {
     }
   }
 
+  async function logTrade() {
+    if (!res) return;
+    if (saving) return;
+
+    // HARD lock stays exactly as before (plan/max loss/max trades/etc)
+    const locked = res.mode === "real" && !res.canTrade && !res.overrideActive;
+    if (locked) {
+      showToast("error", "Locked by rules. Complete your requirements first.");
+      return;
+    }
+
+    // ✅ Step 16: Soft enforcement = extra tap confirm if closeout missing (NO lockout)
+    if (hasCloseoutMissingWarning && res.mode === "real" && !res.overrideActive) {
+      Alert.alert(
+        "Closeout missing",
+        "You haven’t completed today’s Closeout. You can still trade, but this trade will be logged as a rule break (CLOSEOUT_MISSING).",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Log anyway",
+            style: "default",
+            onPress: () => {
+              void doSaveTrade();
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    await doSaveTrade();
+  }
+
   if (loading || !res) {
     return (
       <View style={{ flex: 1, padding: 16, backgroundColor: "white" }}>
@@ -170,6 +209,7 @@ export default function NewTradeTab() {
     );
   }
 
+  // Only hard-lock screen (plan/max loss/etc). Soft warnings never lock you out.
   if (res.mode === "real" && !res.canTrade && !res.overrideActive) {
     return (
       <View style={{ flex: 1, padding: 16, backgroundColor: "white", gap: 12 }}>
@@ -249,6 +289,7 @@ export default function NewTradeTab() {
         style={{ flex: 1, backgroundColor: "white" }}
         contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}
       >
+        {/* Mode / Gate Banner */}
         <View
           style={{
             padding: 12,
@@ -282,6 +323,27 @@ export default function NewTradeTab() {
             </Text>
           ) : null}
         </View>
+
+        {/* ✅ Step 16: Soft warning banner (NO lockout) */}
+        {hasCloseoutMissingWarning ? (
+          <View
+            style={{
+              padding: 12,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: "#ffd38a",
+              backgroundColor: "#fff7ea",
+              gap: 6,
+            }}
+          >
+            <Text style={{ fontWeight: "900" }}>⚠ Closeout missing</Text>
+            <Text style={{ color: "#666" }}>
+              You can still trade, but trades will be logged with{" "}
+              <Text style={{ fontWeight: "900" }}>CLOSEOUT_MISSING</Text>.
+              Complete Closeout when you’re done for the day.
+            </Text>
+          </View>
+        ) : null}
 
         <Text style={{ fontSize: 24, fontWeight: "900" }}>New Trade Log</Text>
 
