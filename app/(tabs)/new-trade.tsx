@@ -59,6 +59,15 @@ export default function NewTradeTab() {
     );
   }, [res]);
 
+  const hasPlanMissingWarning = useMemo(() => {
+    if (!res) return false;
+    return (
+      res.mode === "real" &&
+      Array.isArray(res.softWarnings) &&
+      res.softWarnings.includes("PLAN_MISSING")
+    );
+  }, [res]);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -128,6 +137,7 @@ export default function NewTradeTab() {
   function buildRuleBreaks() {
     const flags: string[] = [];
     if (res?.mode === "real" && res.overrideActive) flags.push("OVERRIDE_USED");
+    if (hasPlanMissingWarning) flags.push("PLAN_MISSING");
     if (hasCloseoutMissingWarning) flags.push("CLOSEOUT_MISSING");
     return flags.join(",");
   }
@@ -174,29 +184,36 @@ export default function NewTradeTab() {
     if (!res) return;
     if (saving) return;
 
-    // HARD lock stays exactly as before (plan/max loss/max trades/etc)
+    // HARD lock stays exactly as before (max trades/max loss/consecutive loss/etc)
     const locked = res.mode === "real" && !res.canTrade && !res.overrideActive;
     if (locked) {
       showToast("error", "Locked by rules. Complete your requirements first.");
       return;
     }
 
-    // ✅ Step 16: Soft enforcement = extra tap confirm if closeout missing (NO lockout)
-    if (hasCloseoutMissingWarning && res.mode === "real" && !res.overrideActive) {
-      Alert.alert(
-        "Closeout missing",
-        "You haven’t completed today’s Closeout. You can still trade, but this trade will be logged as a rule break (CLOSEOUT_MISSING).",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Log anyway",
-            style: "default",
-            onPress: () => {
-              void doSaveTrade();
-            },
-          },
-        ]
-      );
+    // ✅ Soft enforcement = extra tap confirm if plan/closeout missing (NO lockout)
+    if (
+      res.mode === "real" &&
+      !res.overrideActive &&
+      (hasPlanMissingWarning || hasCloseoutMissingWarning)
+    ) {
+      const parts: string[] = [];
+
+      if (hasPlanMissingWarning) {
+        parts.push(
+          "• Daily Plan missing → you can still trade, but this will log PLAN_MISSING."
+        );
+      }
+      if (hasCloseoutMissingWarning) {
+        parts.push(
+          "• Closeout missing → you can still trade, but this will log CLOSEOUT_MISSING."
+        );
+      }
+
+      Alert.alert("Discipline warning", parts.join("\n"), [
+        { text: "Cancel", style: "cancel" },
+        { text: "Log anyway", style: "default", onPress: () => void doSaveTrade() },
+      ]);
       return;
     }
 
@@ -213,7 +230,7 @@ export default function NewTradeTab() {
     );
   }
 
-  // Only hard-lock screen (plan/max loss/etc). Soft warnings never lock you out.
+  // Only hard-lock screen. Soft warnings never lock you out.
   if (res.mode === "real" && !res.canTrade && !res.overrideActive) {
     return (
       <View style={{ flex: 1, padding: 16, backgroundColor: "white", gap: 12 }}>
@@ -239,7 +256,7 @@ export default function NewTradeTab() {
 
         {!res.requirements?.planDone ? (
           <Pressable
-            onPress={() => router.push("/(tabs)/plan")}
+            onPress={() => router.push("/plan")}
             style={{
               padding: 14,
               borderRadius: 12,
@@ -253,7 +270,7 @@ export default function NewTradeTab() {
 
         {res.mode === "real" ? (
           <Pressable
-            onPress={() => router.push("/(tabs)/explore")}
+            onPress={() => router.push("/explore")}
             style={{
               padding: 14,
               borderRadius: 12,
@@ -285,45 +302,46 @@ export default function NewTradeTab() {
   return (
     <View style={{ flex: 1, backgroundColor: "white" }}>
       {/* Toast */}
-      {toastText ? (
-        <Animated.View
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            top: 12,
-            left: 12,
-            right: 12,
-            zIndex: 999,
-            opacity: toastAnim,
-            transform: [
-              {
-                translateY: toastAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [-8, 0],
-                }),
-              },
-            ],
-          }}
-        >
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: 14,
+          left: 16,
+          right: 16,
+          zIndex: 50,
+          opacity: toastAnim,
+          transform: [
+            {
+              translateY: toastAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-16, 0],
+              }),
+            },
+          ],
+        }}
+      >
+        {!!toastText ? (
           <View
             style={{
-              backgroundColor: toastKind === "success" ? "#111" : "#b00020",
-              paddingVertical: 10,
+              paddingVertical: 12,
               paddingHorizontal: 12,
-              borderRadius: 999,
-              alignItems: "center",
+              borderRadius: 14,
+              backgroundColor: toastKind === "success" ? "#0a7a2f" : "#b00020",
             }}
           >
             <Text style={{ color: "white", fontWeight: "900" }}>{toastText}</Text>
           </View>
-        </Animated.View>
-      ) : null}
+        ) : null}
+      </Animated.View>
 
       <ScrollView
-        contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 220 }}
+        style={{ flex: 1, backgroundColor: "white" }}
+        contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 140 }}
         showsVerticalScrollIndicator
+        keyboardShouldPersistTaps="handled"
       >
-        <Text style={{ fontSize: 26, fontWeight: "900" }}>New Trade</Text>
+        <Text style={{ fontSize: 28, fontWeight: "900" }}>New Trade</Text>
 
         {res.mode === "real" ? (
           <View
@@ -343,6 +361,13 @@ export default function NewTradeTab() {
               Trades today: <Text style={{ fontWeight: "900" }}>{res.stats.tradeCount}</Text> • Total R:{" "}
               <Text style={{ fontWeight: "900" }}>{res.stats.sumR.toFixed(2)}R</Text>
             </Text>
+
+            {hasPlanMissingWarning ? (
+              <Text style={{ color: "#666" }}>
+                Plan missing is a warning only. Trades will log PLAN_MISSING.
+              </Text>
+            ) : null}
+
             {hasCloseoutMissingWarning ? (
               <Text style={{ color: "#666" }}>
                 Closeout missing is a warning only. Trades will log CLOSEOUT_MISSING.
@@ -437,7 +462,7 @@ export default function NewTradeTab() {
           <TextInput
             value={bias}
             onChangeText={setBias}
-            placeholder="Bull / Bear / Neutral"
+            placeholder="Bullish / Bearish / Neutral"
             style={{
               borderWidth: 1,
               borderColor: "#ddd",
@@ -453,8 +478,7 @@ export default function NewTradeTab() {
           <TextInput
             value={resultR}
             onChangeText={setResultR}
-            placeholder="+1 / -1.5"
-            keyboardType="default"
+            placeholder="+1"
             style={{
               borderWidth: 1,
               borderColor: "#ddd",
@@ -470,15 +494,15 @@ export default function NewTradeTab() {
           <TextInput
             value={note}
             onChangeText={setNote}
-            placeholder="Why this trade? What did you do right/wrong?"
+            placeholder="Optional notes…"
             multiline
             style={{
-              minHeight: 110,
               borderWidth: 1,
               borderColor: "#ddd",
               borderRadius: 12,
               padding: 12,
               backgroundColor: "white",
+              minHeight: 110,
               textAlignVertical: "top",
             }}
           />
@@ -488,25 +512,24 @@ export default function NewTradeTab() {
           onPress={logTrade}
           disabled={saving}
           style={{
-            backgroundColor: "#111",
             padding: 14,
             borderRadius: 12,
             alignItems: "center",
-            opacity: saving ? 0.6 : 1,
+            backgroundColor: saving ? "#bbb" : "#111",
           }}
         >
           <Text style={{ color: "white", fontWeight: "900" }}>
-            {saving ? "Saving…" : "Log Trade"}
+            {saving ? "Saving…" : "Save Trade"}
           </Text>
         </Pressable>
 
         <Pressable
           onPress={refresh}
           style={{
-            borderWidth: 1,
-            borderColor: "#ddd",
             padding: 14,
             borderRadius: 12,
+            borderWidth: 1,
+            borderColor: "#ddd",
             alignItems: "center",
           }}
         >

@@ -14,7 +14,7 @@ export type GateResult = {
   overrideUntilMs: number;
   overrideCooldownUntilMs: number;
 
-  // ✅ Step 15: non-blocking discipline nudges (NO lockout)
+  // ✅ Soft discipline nudges (NO lockout)
   softWarnings: string[];
 
   requirements: {
@@ -32,8 +32,8 @@ export type GateResult = {
     maxTradesPerDay: number;
     maxDailyLossR: number;
     maxConsecutiveLosses: number;
-    requireDailyPlan: boolean;
-    requireDailyCloseout: boolean; // still exists, but we treat as SOFT (no lockout)
+    requireDailyPlan: boolean; // still exists, but treated as SOFT (no lockout)
+    requireDailyCloseout: boolean; // SOFT (no lockout)
   };
 };
 
@@ -67,7 +67,7 @@ function toNum(v: string | null, fallback: number) {
 export async function evaluateGate(): Promise<GateResult> {
   const now = Date.now();
 
-  // Mode + override settings (match your Admin screen keys)
+  // Mode + override settings
   const [appModeRaw, overrideUntilRaw, overrideCooldownRaw] = await Promise.all([
     getSetting("appMode"),
     getSetting("gateOverrideUntil"),
@@ -124,7 +124,7 @@ export async function evaluateGate(): Promise<GateResult> {
     };
   }
 
-  // REAL MODE checks
+  // REAL MODE requirements checks
   const [planDone, closeoutDone] = await Promise.all([
     settings.requireDailyPlan ? hasDailyPlan(todayKey) : Promise.resolve(true),
     settings.requireDailyCloseout
@@ -135,15 +135,17 @@ export async function evaluateGate(): Promise<GateResult> {
   const reasons: string[] = [];
   const softWarnings: string[] = [];
 
-  // ✅ Keep Daily Plan as a hard rule (your “Real mode discipline”)
-  if (!planDone) reasons.push("Daily Plan not completed for today.");
+  // ✅ Daily Plan is now SOFT (no lockout) — user asked to never be blocked
+  if (!planDone && settings.requireDailyPlan) {
+    softWarnings.push("PLAN_MISSING");
+  }
 
-  // ✅ Closeout is now SOFT (no lockout)
+  // ✅ Closeout remains SOFT (no lockout)
   if (!closeoutDone && settings.requireDailyCloseout) {
     softWarnings.push("CLOSEOUT_MISSING");
   }
 
-  // Hard rules (existing)
+  // Hard rules (lockout still applies for true risk discipline)
   if (
     settings.maxTradesPerDay > 0 &&
     stats.tradeCount >= settings.maxTradesPerDay
