@@ -15,6 +15,22 @@ function makeId() {
 export async function initDb(): Promise<void> {
   const database = getDb();
   await database.execAsync(SQL_CREATE_TABLES);
+
+  // ✅ Step 13.2: Backfill strategy_name for older trades where it's missing.
+  // This keeps dashboards human-friendly even if a strategy is later deleted.
+  await database.runAsync(`
+    UPDATE trades
+    SET strategy_name = (
+      SELECT s.name
+      FROM strategies s
+      WHERE s.id = trades.strategy_id
+      LIMIT 1
+    )
+    WHERE (strategy_name IS NULL OR TRIM(strategy_name) = '')
+      AND strategy_id IS NOT NULL
+      AND TRIM(strategy_id) <> ''
+      AND EXISTS (SELECT 1 FROM strategies s WHERE s.id = trades.strategy_id);
+  `);
 }
 
 /** ---------------- Settings ---------------- **/
@@ -125,8 +141,8 @@ export type Strategy = {
   updatedAt: number;
   name: string;
   market: StrategyMarket;
-  styleTags: string; // e.g. "scalp,intraday"
-  timeframes: string; // e.g. "M5,M15,H1"
+  styleTags: string;
+  timeframes: string;
   description: string;
   checklist: string;
   imageUrl: string;
@@ -148,7 +164,7 @@ export async function upsertStrategy(input: StrategyUpsertInput): Promise<string
   const now = Date.now();
 
   const id = input.id ?? makeId();
-  const createdAt = input.id ? now : now;
+  const createdAt = now;
 
   await database.runAsync(
     `INSERT OR REPLACE INTO strategies
@@ -209,9 +225,9 @@ export async function deleteStrategy(id: string): Promise<void> {
 
 export type StrategyStats = {
   strategyId: string;
-  strategyName: string; // ✅ Step 13: human-friendly display name
+  strategyName: string;
   tradeCount: number;
-  winRate: number; // 0..1
+  winRate: number;
   avgR: number;
   totalR: number;
 };
@@ -229,15 +245,11 @@ export async function getStrategyStats(): Promise<Record<string, StrategyStats>>
   }>(`
     SELECT
       COALESCE(t.strategy_id, '') AS strategy_id,
-
-      -- Prefer current strategy name from strategies table.
-      -- If deleted, fallback to the name stored on the trade.
       COALESCE(
         MAX(s.name),
         MAX(NULLIF(t.strategy_name, '')),
         COALESCE(t.strategy_id, '')
       ) AS strategy_name,
-
       COUNT(*) AS c,
       SUM(CASE WHEN t.result_r > 0 THEN 1 ELSE 0 END) AS wins,
       AVG(t.result_r) AS avgR,
@@ -308,21 +320,12 @@ function getDayStartEndMs(dayKey: string) {
   return { startMs: start.getTime(), endMs: end.getTime() };
 }
 
-/**
- * ✅ UPDATED TradeStats:
- * Keeps your old fields (sumR, consecutiveLosses) so nothing breaks,
- * and adds wins/winRate/avgR/totalR so Status + Stats can show correct win rate.
- */
 export type TradeStats = {
   tradeCount: number;
-
-  // existing fields (kept)
   sumR: number;
   consecutiveLosses: number;
-
-  // added fields (new)
   wins: number;
-  winRate: number; // 0..1
+  winRate: number;
   avgR: number;
   totalR: number;
 };
@@ -374,10 +377,10 @@ export async function getTradeStatsForDay(dayKey: string): Promise<TradeStats> {
     tradeCount,
     sumR,
     consecutiveLosses: streak,
-
     wins,
     winRate,
     avgR,
     totalR: sumR,
   };
 }
+

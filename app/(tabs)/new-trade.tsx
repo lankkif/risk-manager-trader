@@ -1,17 +1,24 @@
 import { useFocusEffect } from "@react-navigation/native";
+import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
-    Animated,
-    Pressable,
-    ScrollView,
-    Text,
-    TextInput,
-    View,
+  Animated,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { insertTrade, listStrategies, Strategy } from "~/db/db";
 import { evaluateGate } from "~/logic/permissions";
 
 export default function NewTradeTab() {
+  const params = useLocalSearchParams<{ strategyId?: string }>();
+  const requestedStrategyId = useMemo(
+    () => (params?.strategyId ? String(params.strategyId) : ""),
+    [params]
+  );
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -46,11 +53,28 @@ export default function NewTradeTab() {
       const [r, sList] = await Promise.all([evaluateGate(), listStrategies()]);
       setRes(r);
       setStrategies(sList);
-      if (!strategyId && sList.length > 0) setStrategyId(sList[0].id);
+
+      // ✅ Step 13.1:
+      // If we navigated here from Strategy Detail with a strategyId param,
+      // preselect it (if it exists). Otherwise keep current selection or default to first.
+      const existsRequested = requestedStrategyId
+        ? sList.some((s) => s.id === requestedStrategyId)
+        : false;
+
+      const existsCurrent = strategyId
+        ? sList.some((s) => s.id === strategyId)
+        : false;
+
+      const nextId =
+        (existsRequested && requestedStrategyId) ||
+        (existsCurrent && strategyId) ||
+        (sList.length > 0 ? sList[0].id : "");
+
+      if (nextId && nextId !== strategyId) setStrategyId(nextId);
     } finally {
       setLoading(false);
     }
-  }, [strategyId]);
+  }, [requestedStrategyId, strategyId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -62,10 +86,8 @@ export default function NewTradeTab() {
     setToastKind(kind);
     setToastText(text);
 
-    // clear existing timer
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
 
-    // fade in
     toastAnim.stopAnimation();
     toastAnim.setValue(0);
     Animated.timing(toastAnim, {
@@ -74,7 +96,6 @@ export default function NewTradeTab() {
       useNativeDriver: true,
     }).start();
 
-    // hold then fade out
     toastTimerRef.current = setTimeout(() => {
       Animated.timing(toastAnim, {
         toValue: 0,
@@ -87,7 +108,6 @@ export default function NewTradeTab() {
   }
 
   function parseR(input: string): number | null {
-    // allow "+1", "1", "-1.25"
     const cleaned = input.trim().replace(",", ".");
     const v = Number(cleaned);
     if (!Number.isFinite(v)) return null;
@@ -98,7 +118,6 @@ export default function NewTradeTab() {
     if (!res) return;
     if (saving) return;
 
-    // Gate block ONLY in Real + locked + no override
     const locked = res.mode === "real" && !res.canTrade && !res.overrideActive;
     if (locked) {
       showToast("error", "Locked by rules. Complete your requirements first.");
@@ -125,7 +144,7 @@ export default function NewTradeTab() {
         timeframe,
         bias,
         strategyId: selectedStrategy.id,
-        strategyName: selectedStrategy.name,
+        strategyName: selectedStrategy.name, // ✅ snapshot name for fallback if strategy is deleted later
         ruleBreaks:
           res.mode === "real" && res.overrideActive ? "OVERRIDE_USED" : "",
       });
@@ -151,7 +170,6 @@ export default function NewTradeTab() {
     );
   }
 
-  // REAL mode locked (no override)
   if (res.mode === "real" && !res.canTrade && !res.overrideActive) {
     return (
       <View style={{ flex: 1, padding: 16, backgroundColor: "white", gap: 12 }}>
@@ -193,7 +211,7 @@ export default function NewTradeTab() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "white" }}>
-      {/* Toast (fades in/out) */}
+      {/* Toast */}
       {toastText ? (
         <Animated.View
           pointerEvents="none"
@@ -222,9 +240,7 @@ export default function NewTradeTab() {
               borderRadius: 12,
             }}
           >
-            <Text style={{ color: "white", fontWeight: "900" }}>
-              {toastText}
-            </Text>
+            <Text style={{ color: "white", fontWeight: "900" }}>{toastText}</Text>
           </View>
         </Animated.View>
       ) : null}
@@ -274,7 +290,6 @@ export default function NewTradeTab() {
           working.
         </Text>
 
-        {/* Strategy picker */}
         <Text style={{ fontWeight: "800" }}>Strategy</Text>
         {strategies.length === 0 ? (
           <Text style={{ color: "#b00020" }}>
@@ -311,61 +326,27 @@ export default function NewTradeTab() {
           </View>
         )}
 
-        {/* Meta */}
         <Text style={{ fontWeight: "800", marginTop: 6 }}>Session</Text>
         <Row>
-          <Chip
-            text="Asia"
-            active={session === "Asia"}
-            onPress={() => setSession("Asia")}
-          />
-          <Chip
-            text="London"
-            active={session === "London"}
-            onPress={() => setSession("London")}
-          />
+          <Chip text="Asia" active={session === "Asia"} onPress={() => setSession("Asia")} />
+          <Chip text="London" active={session === "London"} onPress={() => setSession("London")} />
           <Chip text="NY" active={session === "NY"} onPress={() => setSession("NY")} />
         </Row>
 
         <Text style={{ fontWeight: "800" }}>Timeframe</Text>
         <Row>
-          <Chip
-            text="M5"
-            active={timeframe === "M5"}
-            onPress={() => setTimeframe("M5")}
-          />
-          <Chip
-            text="M15"
-            active={timeframe === "M15"}
-            onPress={() => setTimeframe("M15")}
-          />
-          <Chip
-            text="H1"
-            active={timeframe === "H1"}
-            onPress={() => setTimeframe("H1")}
-          />
+          <Chip text="M5" active={timeframe === "M5"} onPress={() => setTimeframe("M5")} />
+          <Chip text="M15" active={timeframe === "M15"} onPress={() => setTimeframe("M15")} />
+          <Chip text="H1" active={timeframe === "H1"} onPress={() => setTimeframe("H1")} />
         </Row>
 
         <Text style={{ fontWeight: "800" }}>Bias</Text>
         <Row>
-          <Chip
-            text="Bull"
-            active={bias === "Bull"}
-            onPress={() => setBias("Bull")}
-          />
-          <Chip
-            text="Bear"
-            active={bias === "Bear"}
-            onPress={() => setBias("Bear")}
-          />
-          <Chip
-            text="Neutral"
-            active={bias === "Neutral"}
-            onPress={() => setBias("Neutral")}
-          />
+          <Chip text="Bull" active={bias === "Bull"} onPress={() => setBias("Bull")} />
+          <Chip text="Bear" active={bias === "Bear"} onPress={() => setBias("Bear")} />
+          <Chip text="Neutral" active={bias === "Neutral"} onPress={() => setBias("Neutral")} />
         </Row>
 
-        {/* Result */}
         <Text style={{ fontWeight: "800" }}>Result (R)</Text>
         <TextInput
           value={resultR}
@@ -388,8 +369,7 @@ export default function NewTradeTab() {
           onPress={logTrade}
           disabled={strategies.length === 0 || saving}
           style={{
-            backgroundColor:
-              strategies.length === 0 || saving ? "#ddd" : "#111",
+            backgroundColor: strategies.length === 0 || saving ? "#ddd" : "#111",
             padding: 14,
             borderRadius: 12,
             alignItems: "center",
