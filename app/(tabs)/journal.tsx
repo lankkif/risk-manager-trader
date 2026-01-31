@@ -41,6 +41,22 @@ function displayStrategyName(t: TradeRow) {
   return id ? `Strategy ${shortId(id)}` : "No Strategy";
 }
 
+function niceTags(tags: string) {
+  const map: Record<string, string> = {
+    A_PLUS: "A+ Setup",
+    MISTAKE: "Mistake",
+    FOMO: "FOMO",
+    REVENGE: "Revenge",
+  };
+
+  return (tags || "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => map[t] ?? t)
+    .join(" • ");
+}
+
 export default function JournalTab() {
   const [loading, setLoading] = useState(true);
 
@@ -60,12 +76,10 @@ export default function JournalTab() {
         listStrategies(),
       ]);
 
-      // Always include Today even if you haven't traded yet
       const merged = Array.from(new Set([todayKey(), ...dayKeys]));
       setDays(merged);
       setStrategies(sList);
 
-      // If selected day not in list, snap back to today
       if (!merged.includes(selectedDay)) {
         setSelectedDay(todayKey());
       }
@@ -140,7 +154,6 @@ export default function JournalTab() {
         </Text>
       </View>
 
-      {/* Quick actions */}
       <View style={{ flexDirection: "row", gap: 10 }}>
         <Pressable
           onPress={() => router.push("/(tabs)/new-trade")}
@@ -171,7 +184,6 @@ export default function JournalTab() {
         </Pressable>
       </View>
 
-      {/* Day filter */}
       <View style={{ gap: 8 }}>
         <Text style={{ fontWeight: "900" }}>Day</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -188,7 +200,6 @@ export default function JournalTab() {
         </ScrollView>
       </View>
 
-      {/* Strategy filter */}
       <View style={{ gap: 8 }}>
         <Text style={{ fontWeight: "900" }}>Strategy</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -210,7 +221,6 @@ export default function JournalTab() {
         </ScrollView>
       </View>
 
-      {/* Summary */}
       <View
         style={{
           borderWidth: 1,
@@ -235,7 +245,6 @@ export default function JournalTab() {
         </Text>
       </View>
 
-      {/* Trades list */}
       <View style={{ gap: 8 }}>
         <Text style={{ fontSize: 18, fontWeight: "900" }}>Trades</Text>
 
@@ -260,11 +269,11 @@ export default function JournalTab() {
             const r = t.resultR;
             const isWin = r > 0;
             const hasRuleBreak = (t.ruleBreaks || "").trim().length > 0;
+            const tagLine = niceTags(t.tags || "");
 
             return (
               <Pressable
                 key={t.id}
-                // ✅ typed-router-safe navigation:
                 onPress={() =>
                   router.push({
                     pathname: "/trade/[id]",
@@ -294,6 +303,12 @@ export default function JournalTab() {
                       {fmtTime(t.createdAt)} • {t.session || "—"} •{" "}
                       {t.timeframe || "—"} • {t.bias || "—"}
                     </Text>
+
+                    {tagLine ? (
+                      <Text style={{ color: "#444", fontWeight: "900" }}>
+                        🏷 {tagLine}
+                      </Text>
+                    ) : null}
                   </View>
 
                   <View style={{ alignItems: "flex-end" }}>
@@ -361,3 +376,4 @@ function Chip({
     </Pressable>
   );
 }
+

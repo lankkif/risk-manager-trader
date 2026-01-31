@@ -2,7 +2,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, View } from "react-native";
-import { deleteTrade, getTradeById, TradeRow } from "~/db/db";
+import { deleteTrade, getTradeById, TradeRow, updateTradeTags } from "~/db/db";
 
 function fmtTime(ms: number) {
   const d = new Date(ms);
@@ -26,13 +26,43 @@ function displayStrategyName(t: TradeRow) {
   return id ? `Strategy ${shortId(id)}` : "No Strategy";
 }
 
+const TAG_OPTIONS = [
+  { key: "A_PLUS", label: "A+ Setup" },
+  { key: "MISTAKE", label: "Mistake" },
+  { key: "FOMO", label: "FOMO" },
+  { key: "REVENGE", label: "Revenge" },
+] as const;
+
+type TagKey = (typeof TAG_OPTIONS)[number]["key"];
+
+function parseTagsCsv(tags: string): TagKey[] {
+  const raw = (tags || "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  // Keep only valid tag keys
+  const valid = new Set<TagKey>(TAG_OPTIONS.map((t) => t.key));
+  return raw.filter((t): t is TagKey => valid.has(t as TagKey));
+}
+
+function toTagsCsv(tags: TagKey[]) {
+  return Array.from(new Set(tags)).join(",");
+}
+
 export default function TradeDetailsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
   const id = useMemo(() => String(params?.id || ""), [params]);
 
   const [loading, setLoading] = useState(true);
+  const [savingTags, setSavingTags] = useState(false);
   const [trade, setTrade] = useState<TradeRow | null>(null);
+
+  const selectedTags = useMemo(() => {
+    if (!trade) return [];
+    return parseTagsCsv(trade.tags || "");
+  }, [trade]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -57,21 +87,42 @@ export default function TradeDetailsScreen() {
   async function confirmDelete() {
     if (!trade) return;
 
-    Alert.alert(
-      "Delete trade?",
-      "This will permanently delete this trade.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            await deleteTrade(trade.id);
-            router.back();
-          },
+    Alert.alert("Delete trade?", "This will permanently delete this trade.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          await deleteTrade(trade.id);
+          router.back();
         },
-      ]
-    );
+      },
+    ]);
+  }
+
+  async function toggleTag(tag: TagKey) {
+    if (!trade) return;
+    if (savingTags) return;
+
+    const current = parseTagsCsv(trade.tags || "");
+    const next = current.includes(tag)
+      ? current.filter((t) => t !== tag)
+      : [...current, tag];
+
+    const csv = toTagsCsv(next);
+
+    // optimistic update
+    setTrade({ ...trade, tags: csv });
+    setSavingTags(true);
+    try {
+      await updateTradeTags(trade.id, csv);
+    } catch (e) {
+      console.warn("updateTradeTags failed:", e);
+      // rollback by reloading
+      await refresh();
+    } finally {
+      setSavingTags(false);
+    }
   }
 
   if (loading) {
@@ -148,6 +199,54 @@ export default function TradeDetailsScreen() {
             ⚠ Rule breaks: {trade.ruleBreaks}
           </Text>
         ) : null}
+      </View>
+
+      {/* ✅ Step 19 tags */}
+      <View
+        style={{
+          borderWidth: 1,
+          borderColor: "#eee",
+          borderRadius: 14,
+          padding: 12,
+          gap: 8,
+          backgroundColor: "#fafafa",
+        }}
+      >
+        <Text style={{ fontWeight: "900" }}>Tags</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {TAG_OPTIONS.map((t) => {
+            const active = selectedTags.includes(t.key);
+            return (
+              <Pressable
+                key={t.key}
+                onPress={() => toggleTag(t.key)}
+                style={{
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: active ? "#111" : "#ddd",
+                  backgroundColor: active ? "#111" : "white",
+                  opacity: savingTags ? 0.6 : 1,
+                }}
+                disabled={savingTags}
+              >
+                <Text
+                  style={{
+                    color: active ? "white" : "#111",
+                    fontWeight: "900",
+                  }}
+                >
+                  {t.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Text style={{ color: "#666" }}>
+          {savingTags ? "Saving…" : "Tap to toggle tags."}
+        </Text>
       </View>
 
       <View

@@ -12,9 +12,23 @@ function makeId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+async function ensureTradesHasTagsColumn(database: SQLiteDatabase) {
+  // ✅ Safe migration for existing installs
+  const cols = await database.getAllAsync<{ name: string }>(
+    "PRAGMA table_info(trades);"
+  );
+  const hasTags = cols.some((c) => c.name === "tags");
+  if (!hasTags) {
+    await database.runAsync("ALTER TABLE trades ADD COLUMN tags TEXT;");
+  }
+}
+
 export async function initDb(): Promise<void> {
   const database = getDb();
   await database.execAsync(SQL_CREATE_TABLES);
+
+  // ✅ Step 19: migrate existing DBs to include tags column
+  await ensureTradesHasTagsColumn(database);
 
   // ✅ Step 13.2: Backfill strategy_name for older trades where it's missing.
   await database.runAsync(`
@@ -167,7 +181,9 @@ export type StrategyUpsertInput = {
   imageUrl?: string;
 };
 
-export async function upsertStrategy(input: StrategyUpsertInput): Promise<string> {
+export async function upsertStrategy(
+  input: StrategyUpsertInput
+): Promise<string> {
   const database = getDb();
   const now = Date.now();
 
@@ -293,6 +309,7 @@ export type TradeInsert = {
   strategyId?: string;
   strategyName?: string;
   ruleBreaks?: string;
+  tags?: string; // ✅ Step 19
 };
 
 export async function insertTrade(t: TradeInsert) {
@@ -302,8 +319,8 @@ export async function insertTrade(t: TradeInsert) {
 
   await database.runAsync(
     `INSERT INTO trades
-      (id, created_at, strategy_id, strategy_name, bias, session, timeframe, risk_r, result_r, rule_breaks, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      (id, created_at, strategy_id, strategy_name, bias, session, timeframe, risk_r, result_r, rule_breaks, tags, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     [
       id,
       createdAt,
@@ -315,6 +332,7 @@ export async function insertTrade(t: TradeInsert) {
       typeof t.riskR === "number" ? t.riskR : null,
       t.resultR,
       t.ruleBreaks ?? "",
+      t.tags ?? "",
       t.notes ?? "",
     ]
   );
@@ -331,6 +349,7 @@ export type TradeRow = {
   riskR: number | null;
   resultR: number;
   ruleBreaks: string;
+  tags: string; // ✅ Step 19
   notes: string;
 };
 
@@ -373,6 +392,7 @@ export async function listTrades(params: ListTradesParams): Promise<TradeRow[]> 
       risk_r,
       result_r,
       COALESCE(rule_breaks, '') AS rule_breaks,
+      COALESCE(tags, '') AS tags,
       COALESCE(notes, '') AS notes
     FROM trades
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
@@ -391,6 +411,7 @@ export async function listTrades(params: ListTradesParams): Promise<TradeRow[]> 
     risk_r: number | null;
     result_r: number;
     rule_breaks: string;
+    tags: string;
     notes: string;
   }>(sql, [...args, limit, offset]);
 
@@ -405,6 +426,7 @@ export async function listTrades(params: ListTradesParams): Promise<TradeRow[]> 
     riskR: typeof r.risk_r === "number" ? r.risk_r : null,
     resultR: typeof r.result_r === "number" ? r.result_r : Number(r.result_r),
     ruleBreaks: r.rule_breaks ?? "",
+    tags: r.tags ?? "",
     notes: r.notes ?? "",
   }));
 }
@@ -423,6 +445,7 @@ export async function getTradeById(tradeId: string): Promise<TradeRow | null> {
     risk_r: number | null;
     result_r: number;
     rule_breaks: string;
+    tags: string;
     notes: string;
   }>(
     `
@@ -437,6 +460,7 @@ export async function getTradeById(tradeId: string): Promise<TradeRow | null> {
       risk_r,
       result_r,
       COALESCE(rule_breaks, '') AS rule_breaks,
+      COALESCE(tags, '') AS tags,
       COALESCE(notes, '') AS notes
     FROM trades
     WHERE id = ?
@@ -456,10 +480,24 @@ export async function getTradeById(tradeId: string): Promise<TradeRow | null> {
     session: row.session ?? "",
     timeframe: row.timeframe ?? "",
     riskR: typeof row.risk_r === "number" ? row.risk_r : null,
-    resultR: typeof row.result_r === "number" ? row.result_r : Number(row.result_r),
+    resultR: typeof row.result_r === "number"
+      ? row.result_r
+      : Number(row.result_r),
     ruleBreaks: row.rule_breaks ?? "",
+    tags: row.tags ?? "",
     notes: row.notes ?? "",
   };
+}
+
+export async function updateTradeTags(
+  tradeId: string,
+  tags: string
+): Promise<void> {
+  const database = getDb();
+  await database.runAsync("UPDATE trades SET tags = ? WHERE id = ?;", [
+    tags,
+    tradeId,
+  ]);
 }
 
 export async function deleteTrade(tradeId: string): Promise<void> {
@@ -549,5 +587,6 @@ export async function getTradeStatsForDay(dayKey: string): Promise<TradeStats> {
     totalR: sumR,
   };
 }
+
 
 
