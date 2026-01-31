@@ -1,8 +1,21 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
-import { deleteTrade, getTradeById, TradeRow, updateTradeTags } from "~/db/db";
+import {
+    Alert,
+    Pressable,
+    ScrollView,
+    Text,
+    TextInput,
+    View,
+} from "react-native";
+import {
+    deleteTrade,
+    getTradeById,
+    TradeRow,
+    updateTradeNotes,
+    updateTradeTags,
+} from "~/db/db";
 
 function fmtTime(ms: number) {
   const d = new Date(ms);
@@ -41,7 +54,6 @@ function parseTagsCsv(tags: string): TagKey[] {
     .map((t) => t.trim())
     .filter(Boolean);
 
-  // Keep only valid tag keys
   const valid = new Set<TagKey>(TAG_OPTIONS.map((t) => t.key));
   return raw.filter((t): t is TagKey => valid.has(t as TagKey));
 }
@@ -56,8 +68,15 @@ export default function TradeDetailsScreen() {
   const id = useMemo(() => String(params?.id || ""), [params]);
 
   const [loading, setLoading] = useState(true);
-  const [savingTags, setSavingTags] = useState(false);
   const [trade, setTrade] = useState<TradeRow | null>(null);
+
+  // ✅ Step 19 tags saving state
+  const [savingTags, setSavingTags] = useState(false);
+
+  // ✅ Step 20 notes editor
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [notesDraft, setNotesDraft] = useState("");
+  const [savingNotes, setSavingNotes] = useState(false);
 
   const selectedTags = useMemo(() => {
     if (!trade) return [];
@@ -73,10 +92,14 @@ export default function TradeDetailsScreen() {
       }
       const t = await getTradeById(id);
       setTrade(t);
+
+      if (t && !isEditingNotes) {
+        setNotesDraft(t.notes ?? "");
+      }
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, isEditingNotes]);
 
   useFocusEffect(
     useCallback(() => {
@@ -111,17 +134,51 @@ export default function TradeDetailsScreen() {
 
     const csv = toTagsCsv(next);
 
-    // optimistic update
     setTrade({ ...trade, tags: csv });
     setSavingTags(true);
     try {
       await updateTradeTags(trade.id, csv);
     } catch (e) {
       console.warn("updateTradeTags failed:", e);
-      // rollback by reloading
       await refresh();
     } finally {
       setSavingTags(false);
+    }
+  }
+
+  function startEditNotes() {
+    if (!trade) return;
+    setNotesDraft(trade.notes ?? "");
+    setIsEditingNotes(true);
+  }
+
+  function cancelEditNotes() {
+    if (!trade) {
+      setIsEditingNotes(false);
+      setNotesDraft("");
+      return;
+    }
+    setNotesDraft(trade.notes ?? "");
+    setIsEditingNotes(false);
+  }
+
+  async function saveNotes() {
+    if (!trade) return;
+    if (savingNotes) return;
+
+    const next = notesDraft ?? "";
+
+    setSavingNotes(true);
+    try {
+      await updateTradeNotes(trade.id, next);
+      setTrade({ ...trade, notes: next });
+      setIsEditingNotes(false);
+    } catch (e) {
+      console.warn("updateTradeNotes failed:", e);
+      Alert.alert("Could not save notes", "Please try again.");
+      await refresh();
+    } finally {
+      setSavingNotes(false);
     }
   }
 
@@ -201,7 +258,7 @@ export default function TradeDetailsScreen() {
         ) : null}
       </View>
 
-      {/* ✅ Step 19 tags */}
+      {/* ✅ Tags (Step 19) */}
       <View
         style={{
           borderWidth: 1,
@@ -213,6 +270,7 @@ export default function TradeDetailsScreen() {
         }}
       >
         <Text style={{ fontWeight: "900" }}>Tags</Text>
+
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
           {TAG_OPTIONS.map((t) => {
             const active = selectedTags.includes(t.key);
@@ -220,6 +278,7 @@ export default function TradeDetailsScreen() {
               <Pressable
                 key={t.key}
                 onPress={() => toggleTag(t.key)}
+                disabled={savingTags}
                 style={{
                   paddingVertical: 10,
                   paddingHorizontal: 12,
@@ -229,7 +288,6 @@ export default function TradeDetailsScreen() {
                   backgroundColor: active ? "#111" : "white",
                   opacity: savingTags ? 0.6 : 1,
                 }}
-                disabled={savingTags}
               >
                 <Text
                   style={{
@@ -249,20 +307,108 @@ export default function TradeDetailsScreen() {
         </Text>
       </View>
 
+      {/* ✅ Notes editor (Step 20) */}
       <View
         style={{
           borderWidth: 1,
           borderColor: "#eee",
           borderRadius: 14,
           padding: 12,
-          gap: 6,
+          gap: 10,
           backgroundColor: "#fafafa",
         }}
       >
-        <Text style={{ fontWeight: "900" }}>Notes</Text>
-        <Text style={{ color: "#333" }}>
-          {trade.notes?.trim() ? trade.notes.trim() : "—"}
-        </Text>
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <Text style={{ fontWeight: "900" }}>Notes</Text>
+
+          {!isEditingNotes ? (
+            <Pressable
+              onPress={startEditNotes}
+              style={{
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: "#ddd",
+                backgroundColor: "white",
+              }}
+            >
+              <Text style={{ fontWeight: "900" }}>Edit</Text>
+            </Pressable>
+          ) : (
+            <Text style={{ color: "#666", fontWeight: "900" }}>
+              {savingNotes ? "Saving…" : "Editing"}
+            </Text>
+          )}
+        </View>
+
+        {!isEditingNotes ? (
+          <Text style={{ color: "#333" }}>
+            {trade.notes?.trim() ? trade.notes.trim() : "—"}
+          </Text>
+        ) : (
+          <View style={{ gap: 10 }}>
+            <TextInput
+              value={notesDraft}
+              onChangeText={setNotesDraft}
+              placeholder="Write what happened, why, and what you improve next time…"
+              multiline
+              style={{
+                minHeight: 110,
+                borderWidth: 1,
+                borderColor: "#ddd",
+                borderRadius: 12,
+                padding: 12,
+                backgroundColor: "white",
+                textAlignVertical: "top",
+              }}
+              editable={!savingNotes}
+            />
+
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Pressable
+                onPress={saveNotes}
+                disabled={savingNotes}
+                style={{
+                  flex: 1,
+                  backgroundColor: "#111",
+                  paddingVertical: 12,
+                  paddingHorizontal: 14,
+                  borderRadius: 12,
+                  alignItems: "center",
+                  opacity: savingNotes ? 0.6 : 1,
+                }}
+              >
+                <Text style={{ color: "white", fontWeight: "900" }}>
+                  Save Notes
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={cancelEditNotes}
+                disabled={savingNotes}
+                style={{
+                  borderWidth: 1,
+                  borderColor: "#ddd",
+                  paddingVertical: 12,
+                  paddingHorizontal: 14,
+                  borderRadius: 12,
+                  alignItems: "center",
+                  opacity: savingNotes ? 0.6 : 1,
+                }}
+              >
+                <Text style={{ fontWeight: "900" }}>Cancel</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
       </View>
 
       <Pressable

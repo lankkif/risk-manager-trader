@@ -30,7 +30,7 @@ export async function initDb(): Promise<void> {
   // ✅ Step 19: migrate existing DBs to include tags column
   await ensureTradesHasTagsColumn(database);
 
-  // ✅ Step 13.2: Backfill strategy_name for older trades where it's missing.
+  // ✅ Backfill strategy_name for older trades where it's missing
   await database.runAsync(`
     UPDATE trades
     SET strategy_name = (
@@ -489,13 +489,26 @@ export async function getTradeById(tradeId: string): Promise<TradeRow | null> {
   };
 }
 
+/** ✅ Step 19: Update tags after trade */
 export async function updateTradeTags(
   tradeId: string,
   tags: string
 ): Promise<void> {
   const database = getDb();
   await database.runAsync("UPDATE trades SET tags = ? WHERE id = ?;", [
-    tags,
+    tags ?? "",
+    tradeId,
+  ]);
+}
+
+/** ✅ Step 20: Update notes after trade */
+export async function updateTradeNotes(
+  tradeId: string,
+  notes: string
+): Promise<void> {
+  const database = getDb();
+  await database.runAsync("UPDATE trades SET notes = ? WHERE id = ?;", [
+    notes ?? "",
     tradeId,
   ]);
 }
@@ -587,6 +600,5 @@ export async function getTradeStatsForDay(dayKey: string): Promise<TradeStats> {
     totalR: sumR,
   };
 }
-
 
 
