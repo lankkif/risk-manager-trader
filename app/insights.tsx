@@ -319,7 +319,8 @@ export default function InsightsScreen() {
 
         <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
           <Pressable
-            onPress={() => router.push("/(tabs)/journal")}
+            // ✅ FIX: typed route (no "/(tabs)/")
+            onPress={() => router.push("/journal")}
             style={{
               backgroundColor: "#111",
               paddingVertical: 12,
@@ -333,7 +334,8 @@ export default function InsightsScreen() {
           </Pressable>
 
           <Pressable
-            onPress={() => router.push("/(tabs)/closeout")}
+            // ✅ FIX: typed route (no "/(tabs)/")
+            onPress={() => router.push("/closeout")}
             style={{
               borderWidth: 1,
               borderColor: "#ddd",
