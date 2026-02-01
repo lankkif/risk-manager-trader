@@ -104,9 +104,9 @@ export default function StrategyDetailScreen() {
 
       <Pressable
         onPress={() => {
-          // navigate to Trade tab and pass strategyId
+          // ✅ FIX: typed route (no "/(tabs)/")
           router.push({
-            pathname: "/(tabs)/new-trade",
+            pathname: "/new-trade",
             params: { strategyId: strategy.id },
           });
         }}
