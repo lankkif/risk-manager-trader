@@ -200,7 +200,8 @@ export default function StatusTab() {
             learning and protect discipline.
           </Text>
           <Pressable
-            onPress={() => router.push("/(tabs)/closeout")}
+            // ✅ FIX: typed route (no "/(tabs)/")
+            onPress={() => router.push("/closeout")}
             style={{
               backgroundColor: "#111",
               padding: 12,
@@ -245,7 +246,8 @@ export default function StatusTab() {
 
       {/* Actions */}
       <Pressable
-        onPress={() => router.push("/(tabs)/new-trade")}
+        // ✅ FIX: typed route (no "/(tabs)/")
+        onPress={() => router.push("/new-trade")}
         style={{
           backgroundColor: locked ? "#ddd" : "#111",
           padding: 14,
@@ -259,9 +261,10 @@ export default function StatusTab() {
         </Text>
       </Pressable>
 
-      {/* ✅ Correct route: open Closeout tab (not Journal) */}
+      {/* ✅ Correct route: open Closeout tab */}
       <Pressable
-        onPress={() => router.push("/(tabs)/closeout")}
+        // ✅ FIX: typed route (no "/(tabs)/")
+        onPress={() => router.push("/closeout")}
         style={{
           borderWidth: 1,
           borderColor: "#ddd",
@@ -274,7 +277,8 @@ export default function StatusTab() {
       </Pressable>
 
       <Pressable
-        onPress={() => router.push("/(tabs)/journal")}
+        // ✅ FIX: typed route (no "/(tabs)/")
+        onPress={() => router.push("/journal")}
         style={{
           borderWidth: 1,
           borderColor: "#ddd",
