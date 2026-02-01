@@ -31,37 +31,46 @@ export default function PlanTab() {
 
   const [isRealMode, setIsRealMode] = useState(false);
 
+  // ✅ New: track if user changed anything since last save/load
+  const [dirty, setDirty] = useState(false);
+
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const markDirty = useCallback(() => {
-    // if user changes anything after saving, go back to "Not saved"
+    setDirty(true);
+    // If we were "saved", revert to idle so UI shows "Not saved" until save again
     if (saveState === "saved") setSaveState("idle");
   }, [saveState]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [planRow, realModeSetting] = await Promise.all([
+      const [planRow, appModeSetting] = await Promise.all([
         getDailyPlan(dayKey),
-        getSetting("mode"),
+        getSetting("appMode"), // ✅ consistent key
       ]);
 
-      setIsRealMode((realModeSetting ?? "") === "real");
+      setIsRealMode((appModeSetting ?? "") === "real");
 
       if (planRow) {
         setBias(planRow.bias ?? "");
         setNewsCaution(!!planRow.newsCaution);
         setKeyLevels(planRow.keyLevels ?? "");
         setScenarios(planRow.scenarios ?? "");
+
+        // ✅ If plan exists, show Saved ✅ by default (until user edits)
+        setSaveState("saved");
+        setDirty(false);
       } else {
         setBias("");
         setNewsCaution(false);
         setKeyLevels("");
         setScenarios("");
-      }
 
-      setSaveState("idle");
+        setSaveState("idle");
+        setDirty(false);
+      }
     } finally {
       setLoading(false);
     }
@@ -79,38 +88,37 @@ export default function PlanTab() {
     }, [refresh])
   );
 
-  const canSave = useMemo(() => {
-    if (loading) return false;
-    if (saveState === "saving") return false;
-    if (saveState === "saved") return false;
-
-    const hasAny =
+  const hasAnyContent = useMemo(() => {
+    return (
       (bias || "").trim().length > 0 ||
       (keyLevels || "").trim().length > 0 ||
       (scenarios || "").trim().length > 0 ||
-      newsCaution;
+      !!newsCaution
+    );
+  }, [bias, keyLevels, scenarios, newsCaution]);
 
-    return hasAny;
-  }, [loading, saveState, bias, keyLevels, scenarios, newsCaution]);
+  const canSave = useMemo(() => {
+    if (loading) return false;
+    if (saveState === "saving") return false;
+    if (!dirty) return false; // ✅ only save when something changed
+    if (!hasAnyContent) return false; // keep simple: don't save empty plans
+    return true;
+  }, [loading, saveState, dirty, hasAnyContent]);
 
   const planStatusLabel = useMemo(() => {
     if (loading) return "Loading…";
     if (saveState === "saving") return "Saving…";
-    if (saveState === "saved") return "Saved ✅";
+    if (saveState === "saved" && !dirty) return "Saved ✅";
     return "Not saved";
-  }, [loading, saveState]);
+  }, [loading, saveState, dirty]);
 
   const planStatusColor = useMemo(() => {
-    if (saveState === "saved") return "#0a7a2f";
+    if (saveState === "saved" && !dirty) return "#0a7a2f";
     if (saveState === "saving") return "#b26a00";
     return "#666";
-  }, [saveState]);
+  }, [saveState, dirty]);
 
-  const allowInputs = useMemo(() => {
-    // Demo mode: always allow editing.
-    // Real mode: also allow editing (planning is required).
-    return true;
-  }, []);
+  const allowInputs = useMemo(() => true, []);
 
   async function savePlan() {
     if (!canSave) return;
@@ -124,12 +132,15 @@ export default function PlanTab() {
         scenarios: scenarios.trim(),
       });
 
+      // ✅ Saved stays "Saved ✅" until user edits again
       setSaveState("saved");
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
-        setSaveState("idle");
+      setDirty(false);
+
+      // kill any old timers (we no longer auto-reset)
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
         saveTimer.current = null;
-      }, 2500);
+      }
     } catch (e) {
       console.warn("Save plan failed:", e);
       setSaveState("idle");
@@ -158,17 +169,19 @@ export default function PlanTab() {
   }, []);
 
   const headerSubtitle = useMemo(() => {
-    if (isRealMode) {
-      return "REAL MODE: Plan first. Trade only if rules allow.";
-    }
+    if (isRealMode) return "REAL MODE: Plan first. Trade only if rules allow.";
     return "DEMO MODE: Build your discipline plan and test flows.";
   }, [isRealMode]);
 
   const saveButtonText =
-    saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved ✅" : "Save Plan";
+    saveState === "saving"
+      ? "Saving…"
+      : saveState === "saved" && !dirty
+      ? "Saved ✅"
+      : "Save Plan";
 
   const saveButtonBg =
-    saveState === "saved" ? "#0a7a2f" : canSave ? "#111" : "#bbb";
+    saveState === "saved" && !dirty ? "#0a7a2f" : canSave ? "#111" : "#bbb";
 
   return (
     <ScrollView
@@ -252,7 +265,12 @@ export default function PlanTab() {
                   opacity: allowInputs ? 1 : 0.6,
                 }}
               >
-                <Text style={{ fontWeight: "900", color: active ? "white" : "#111" }}>
+                <Text
+                  style={{
+                    fontWeight: "900",
+                    color: active ? "white" : "#111",
+                  }}
+                >
                   {b}
                 </Text>
               </Pressable>
@@ -298,7 +316,13 @@ export default function PlanTab() {
 
       {/* Key Levels */}
       <View style={card}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "space-between",
+            gap: 10,
+          }}
+        >
           <Text style={{ fontWeight: "900" }}>Key Levels</Text>
           <Pressable
             onPress={() => {
@@ -339,7 +363,13 @@ export default function PlanTab() {
 
       {/* Scenarios */}
       <View style={card}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "space-between",
+            gap: 10,
+          }}
+        >
           <Text style={{ fontWeight: "900" }}>If–Then Scenarios</Text>
           <Pressable
             onPress={() => {
@@ -382,7 +412,7 @@ export default function PlanTab() {
       <View style={{ gap: 10 }}>
         <Pressable
           onPress={savePlan}
-          disabled={!canSave && saveState !== "saved"}
+          disabled={!canSave}
           style={{
             backgroundColor: saveButtonBg,
             padding: 14,
@@ -391,11 +421,13 @@ export default function PlanTab() {
             opacity: saveState === "saving" ? 0.8 : 1,
           }}
         >
-          <Text style={{ color: "white", fontWeight: "900" }}>{saveButtonText}</Text>
+          <Text style={{ color: "white", fontWeight: "900" }}>
+            {saveButtonText}
+          </Text>
         </Pressable>
 
         <Text style={{ color: "#666" }}>
-          {saveState === "saved"
+          {saveState === "saved" && !dirty
             ? "Plan saved. Now you trade like a machine."
             : "Write a plan that removes emotion and makes your actions predictable."}
         </Text>
@@ -405,8 +437,8 @@ export default function PlanTab() {
       <View style={{ gap: 6 }}>
         <Text style={{ fontWeight: "900" }}>How this will evolve</Text>
         <Text style={{ color: "#666" }}>
-          Later we’ll add: plan lock, required checklist, session windows, discipline score,
-          and auto-insights from your trades.
+          Later we’ll add: plan lock, required checklist, session windows,
+          discipline score, and auto-insights from your trades.
         </Text>
       </View>
     </ScrollView>
