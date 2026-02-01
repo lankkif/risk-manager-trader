@@ -1,97 +1,108 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
+import { Tabs, useRouter } from "expo-router";
 import React from "react";
+import { Pressable } from "react-native";
 
 export default function TabLayout() {
+  const router = useRouter();
+
   return (
     <Tabs
       screenOptions={{
         headerTitleAlign: "center",
         tabBarActiveTintColor: "#111",
         tabBarInactiveTintColor: "#777",
+
+        // ✅ Top-left Hamburger (Drawer/Menu placeholder)
+        headerLeft: () => (
+          <Pressable
+            onPress={() => router.push("/modal")}
+            style={{ paddingHorizontal: 14, paddingVertical: 6 }}
+            hitSlop={10}
+          >
+            <Ionicons name="menu" size={24} color="#111" />
+          </Pressable>
+        ),
+
+        // ✅ Top-right Profile (placeholder -> modal for now)
+        headerRight: () => (
+          <Pressable
+            onPress={() => router.push("/modal")}
+            style={{ paddingHorizontal: 14, paddingVertical: 6 }}
+            hitSlop={10}
+          >
+            <Ionicons name="person-circle-outline" size={26} color="#111" />
+          </Pressable>
+        ),
       }}
     >
+      {/* =========================
+          ✅ MAIN TABS (MAX 5)
+          ========================= */}
+
       <Tabs.Screen
         name="index"
         options={{
-          title: "Status",
+          title: "Home",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="shield-checkmark" size={size} color={color} />
+            <Ionicons name="home-outline" size={size} color={color} />
           ),
         }}
       />
 
-      <Tabs.Screen
-        name="plan"
-        options={{
-          title: "Plan",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="map" size={size} color={color} />
-          ),
-        }}
-      />
-
+      {/* Center Action */}
       <Tabs.Screen
         name="new-trade"
         options={{
-          title: "Trade",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="add-circle" size={size} color={color} />
+          title: "Log Trade",
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="add-circle" size={34} color={color} />
           ),
         }}
       />
 
+      {/* Your current journal screen is actually the Trade Log list */}
       <Tabs.Screen
         name="journal"
         options={{
-          title: "Journal",
+          title: "Trades",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="book" size={size} color={color} />
+            <Ionicons name="list-outline" size={size} color={color} />
           ),
         }}
       />
 
-      {/* ✅ NEW: Closeout tab */}
+      {/* Temporarily using Closeout as Journal (daily reflection) */}
       <Tabs.Screen
         name="closeout"
         options={{
-          title: "Closeout",
+          title: "Journal",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="checkmark-done" size={size} color={color} />
+            <Ionicons name="book-outline" size={size} color={color} />
           ),
         }}
       />
 
-      <Tabs.Screen
-        name="dashboard"
-        options={{
-          title: "Stats",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="bar-chart" size={size} color={color} />
-          ),
-        }}
-      />
-
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: "Rules",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="settings" size={size} color={color} />
-          ),
-        }}
-      />
-
-      {/* ✅ Explore is now your Admin tab */}
+      {/* Your explore tab is currently Strategy Manager (we rename it for now) */}
       <Tabs.Screen
         name="explore"
         options={{
-          title: "Admin",
+          title: "Strategies",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="key" size={size} color={color} />
+            <Ionicons name="layers-outline" size={size} color={color} />
           ),
         }}
       />
+
+      {/* =========================
+          ✅ HIDDEN ROUTES (still accessible by router.push)
+          We hide these to keep the tab bar clean.
+          Later they move into the hamburger drawer.
+          ========================= */}
+
+      <Tabs.Screen name="plan" options={{ href: null }} />
+      <Tabs.Screen name="dashboard" options={{ href: null }} />
+      <Tabs.Screen name="settings" options={{ href: null }} />
     </Tabs>
   );
 }
