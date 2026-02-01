@@ -51,9 +51,9 @@ export default function AdminTab() {
   const [loading, setLoading] = useState(true);
 
   // ✅ Live gate snapshot (for rule status display)
-  const [gate, setGate] = useState<Awaited<ReturnType<typeof evaluateGate>> | null>(
-    null
-  );
+  const [gate, setGate] = useState<
+    Awaited<ReturnType<typeof evaluateGate>> | null
+  >(null);
 
   // ✅ Discipline rules
   const [requireDailyPlan, setRequireDailyPlan] = useState(true);
@@ -286,7 +286,8 @@ export default function AdminTab() {
         ) : (
           <>
             <Text style={{ color: "#666" }}>
-              Mode: <Text style={{ fontWeight: "900" }}>{gate.mode.toUpperCase()}</Text>{" "}
+              Mode:{" "}
+              <Text style={{ fontWeight: "900" }}>{gate.mode.toUpperCase()}</Text>{" "}
               • Override:{" "}
               <Text style={{ fontWeight: "900" }}>
                 {gate.overrideActive ? "ON" : "OFF"}
@@ -298,9 +299,13 @@ export default function AdminTab() {
                 Today: Trades{" "}
                 <Text style={{ fontWeight: "900" }}>{gate.stats.tradeCount}</Text>{" "}
                 • Total R{" "}
-                <Text style={{ fontWeight: "900" }}>{gate.stats.sumR.toFixed(2)}R</Text>{" "}
+                <Text style={{ fontWeight: "900" }}>
+                  {gate.stats.sumR.toFixed(2)}R
+                </Text>{" "}
                 • Consec losses{" "}
-                <Text style={{ fontWeight: "900" }}>{gate.stats.consecutiveLosses}</Text>
+                <Text style={{ fontWeight: "900" }}>
+                  {gate.stats.consecutiveLosses}
+                </Text>
               </Text>
             ) : null}
 
@@ -325,7 +330,8 @@ export default function AdminTab() {
             {/* Quick actions */}
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
               <Pressable
-                onPress={() => router.push("/(tabs)/plan")}
+                // ✅ FIX: typed route
+                onPress={() => router.push("/plan")}
                 style={{
                   paddingVertical: 12,
                   paddingHorizontal: 14,
@@ -337,7 +343,8 @@ export default function AdminTab() {
               </Pressable>
 
               <Pressable
-                onPress={() => router.push("/(tabs)/closeout")}
+                // ✅ FIX: typed route
+                onPress={() => router.push("/closeout")}
                 style={{
                   paddingVertical: 12,
                   paddingHorizontal: 14,
@@ -424,373 +431,347 @@ export default function AdminTab() {
           borderColor: "#eee",
           borderRadius: 14,
           gap: 10,
+          backgroundColor: "#fafafa",
         }}
       >
-        <Text style={{ fontWeight: "900", fontSize: 18 }}>Discipline Rules</Text>
-        <Text style={{ color: "#666" }}>
-          These rules only apply in REAL mode. Plan is a hard gate. Closeout is a warning (soft).
-        </Text>
+        <Text style={{ fontWeight: "900", fontSize: 16 }}>Discipline Rules</Text>
 
-        <Row>
-          <View style={{ flex: 1, minWidth: 220, gap: 6 }}>
-            <Text style={{ fontWeight: "800" }}>Require Daily Plan (hard)</Text>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <Text style={{ fontWeight: "800" }}>Off</Text>
-              <Switch
-                value={requireDailyPlan}
-                onValueChange={setRequireDailyPlan}
-              />
-              <Text style={{ fontWeight: "800" }}>On</Text>
-            </View>
-          </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Switch value={requireDailyPlan} onValueChange={setRequireDailyPlan} />
+          <Text style={{ fontWeight: "900" }}>Require Daily Plan</Text>
+        </View>
 
-          <View style={{ flex: 1, minWidth: 220, gap: 6 }}>
-            <Text style={{ fontWeight: "800" }}>Require Closeout (soft)</Text>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <Text style={{ fontWeight: "800" }}>Off</Text>
-              <Switch
-                value={requireDailyCloseout}
-                onValueChange={setRequireDailyCloseout}
-              />
-              <Text style={{ fontWeight: "800" }}>On</Text>
-            </View>
-          </View>
-        </Row>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Switch
+            value={requireDailyCloseout}
+            onValueChange={setRequireDailyCloseout}
+          />
+          <Text style={{ fontWeight: "900" }}>Require Daily Closeout</Text>
+        </View>
 
-        <Label label="Max trades per day" />
+        <Text style={{ fontWeight: "900" }}>Max trades per day</Text>
         <TextInput
           value={maxTradesPerDay}
           onChangeText={setMaxTradesPerDay}
-          placeholder="3"
           keyboardType="numeric"
-          style={inputStyle}
+          style={{
+            borderWidth: 1,
+            borderColor: "#ddd",
+            borderRadius: 12,
+            padding: 12,
+            backgroundColor: "white",
+          }}
         />
 
-        <Label label="Max daily loss (R) (e.g. 2 means lock at -2R)" />
+        <Text style={{ fontWeight: "900" }}>Max daily loss (R)</Text>
         <TextInput
           value={maxDailyLossR}
           onChangeText={setMaxDailyLossR}
-          placeholder="2"
           keyboardType="numeric"
-          style={inputStyle}
+          style={{
+            borderWidth: 1,
+            borderColor: "#ddd",
+            borderRadius: 12,
+            padding: 12,
+            backgroundColor: "white",
+          }}
         />
 
-        <Label label="Max consecutive losses (e.g. 2)" />
+        <Text style={{ fontWeight: "900" }}>Max consecutive losses</Text>
         <TextInput
           value={maxConsecutiveLosses}
           onChangeText={setMaxConsecutiveLosses}
-          placeholder="2"
           keyboardType="numeric"
-          style={inputStyle}
-        />
-
-        <Pressable
-          onPress={saveRules}
-          disabled={loading || rulesSaveState === "saving"}
           style={{
-            padding: 14,
-            borderRadius: 12,
-            alignItems: "center",
-            backgroundColor: rulesButtonBg,
-            opacity: loading ? 0.6 : 1,
-          }}
-        >
-          <Text style={{ color: "white", fontWeight: "900" }}>
-            {loading ? "Loading…" : rulesButtonText}
-          </Text>
-        </Pressable>
-
-        <Pressable
-          onPress={resetRulesDefaults}
-          style={{
-            padding: 14,
-            borderRadius: 12,
-            alignItems: "center",
             borderWidth: 1,
             borderColor: "#ddd",
+            borderRadius: 12,
+            padding: 12,
+            backgroundColor: "white",
           }}
-        >
-          <Text style={{ fontWeight: "900" }}>Reset to Defaults</Text>
-        </Pressable>
+        />
+
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <Pressable
+            onPress={saveRules}
+            style={{
+              flex: 1,
+              padding: 14,
+              borderRadius: 12,
+              alignItems: "center",
+              backgroundColor: rulesButtonBg,
+            }}
+          >
+            <Text style={{ color: "white", fontWeight: "900" }}>
+              {rulesButtonText}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={resetRulesDefaults}
+            style={{
+              padding: 14,
+              borderRadius: 12,
+              alignItems: "center",
+              borderWidth: 1,
+              borderColor: "#ddd",
+              backgroundColor: "white",
+            }}
+          >
+            <Text style={{ fontWeight: "900" }}>Reset</Text>
+          </Pressable>
+        </View>
       </View>
 
-      {/* Strategy Manager */}
+      {/* ✅ Strategy Manager */}
       <View
         style={{
           padding: 14,
           borderWidth: 1,
           borderColor: "#eee",
           borderRadius: 14,
-          gap: 10,
+          gap: 12,
         }}
       >
-        <Text style={{ fontWeight: "900", fontSize: 18 }}>
-          Strategy Manager
-        </Text>
+        <Text style={{ fontWeight: "900", fontSize: 16 }}>Strategy Manager</Text>
 
-        <Text style={{ color: "#666" }}>
-          Add your Gold/US30 strategies with clear descriptions + checklists.
-          This is what makes you trade like a machine.
-        </Text>
-
-        <Label label="Strategy name" />
-        <TextInput
-          value={name}
-          onChangeText={setName}
-          placeholder="e.g. S/R + Supertrend Bias"
-          style={inputStyle}
-        />
-
-        <Label label="Market" />
-        <Row>
-          <Chip
-            text="Gold"
-            active={market === "gold"}
-            onPress={() => setMarket("gold")}
+        {/* Create strategy */}
+        <View style={{ gap: 8 }}>
+          <Text style={{ fontWeight: "900" }}>Name</Text>
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            placeholder="e.g. Asia Sweep + EQ Retest"
+            style={{
+              borderWidth: 1,
+              borderColor: "#ddd",
+              borderRadius: 12,
+              padding: 12,
+              backgroundColor: "white",
+            }}
           />
-          <Chip
-            text="US30"
-            active={market === "us30"}
-            onPress={() => setMarket("us30")}
+
+          <Text style={{ fontWeight: "900" }}>Market</Text>
+          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+            {(["gold", "us30", "both"] as StrategyMarket[]).map((m) => {
+              const active = m === market;
+              return (
+                <Pressable
+                  key={m}
+                  onPress={() => setMarket(m)}
+                  style={{
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: active ? "#111" : "#ddd",
+                    backgroundColor: active ? "#111" : "white",
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontWeight: "900",
+                      color: active ? "white" : "#111",
+                    }}
+                  >
+                    {m.toUpperCase()}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Text style={{ fontWeight: "900" }}>Tags</Text>
+          <TextInput
+            value={styleTags}
+            onChangeText={setStyleTags}
+            placeholder="intraday, trend, scalps"
+            style={{
+              borderWidth: 1,
+              borderColor: "#ddd",
+              borderRadius: 12,
+              padding: 12,
+              backgroundColor: "white",
+            }}
           />
-          <Chip
-            text="Both"
-            active={market === "both"}
-            onPress={() => setMarket("both")}
+
+          <Text style={{ fontWeight: "900" }}>Timeframes</Text>
+          <TextInput
+            value={timeframes}
+            onChangeText={setTimeframes}
+            placeholder="M5,M15,H1"
+            style={{
+              borderWidth: 1,
+              borderColor: "#ddd",
+              borderRadius: 12,
+              padding: 12,
+              backgroundColor: "white",
+            }}
           />
-        </Row>
 
-        <Label label="Style tags (comma separated)" />
-        <TextInput
-          value={styleTags}
-          onChangeText={setStyleTags}
-          placeholder="scalp,intraday,swing"
-          style={inputStyle}
-        />
+          <Text style={{ fontWeight: "900" }}>Description</Text>
+          <TextInput
+            value={description}
+            onChangeText={setDescription}
+            placeholder="What makes this setup valid?"
+            multiline
+            style={{
+              borderWidth: 1,
+              borderColor: "#ddd",
+              borderRadius: 12,
+              padding: 12,
+              backgroundColor: "white",
+              minHeight: 90,
+              textAlignVertical: "top",
+            }}
+          />
 
-        <Label label="Timeframes" />
-        <TextInput
-          value={timeframes}
-          onChangeText={setTimeframes}
-          placeholder="M5,M15,H1"
-          style={inputStyle}
-        />
+          <Text style={{ fontWeight: "900" }}>Checklist</Text>
+          <TextInput
+            value={checklist}
+            onChangeText={setChecklist}
+            placeholder="One item per line…"
+            multiline
+            style={{
+              borderWidth: 1,
+              borderColor: "#ddd",
+              borderRadius: 12,
+              padding: 12,
+              backgroundColor: "white",
+              minHeight: 110,
+              textAlignVertical: "top",
+            }}
+          />
 
-        <Label label="Description (how to use)" />
-        <TextInput
-          value={description}
-          onChangeText={setDescription}
-          placeholder="Explain the setup, entry trigger, stop logic, exit rules…"
-          style={[inputStyle, { height: 110, textAlignVertical: "top" }]}
-          multiline
-        />
+          <Text style={{ fontWeight: "900" }}>Image URL (optional)</Text>
+          <TextInput
+            value={imageUrl}
+            onChangeText={setImageUrl}
+            placeholder="https://..."
+            style={{
+              borderWidth: 1,
+              borderColor: "#ddd",
+              borderRadius: 12,
+              padding: 12,
+              backgroundColor: "white",
+            }}
+          />
 
-        <Label label="Checklist (one rule per line)" />
-        <TextInput
-          value={checklist}
-          onChangeText={setChecklist}
-          placeholder={"Bias confirmed\nEntry at level\nStop defined\nTP defined"}
-          style={[inputStyle, { height: 110, textAlignVertical: "top" }]}
-          multiline
-        />
-
-        <Label label="Optional image URL (visual example)" />
-        <TextInput
-          value={imageUrl}
-          onChangeText={setImageUrl}
-          placeholder="https://…"
-          style={inputStyle}
-          autoCapitalize="none"
-        />
-
-        {imageUrl.trim().length > 8 ? (
-          <View style={{ marginTop: 6, gap: 6 }}>
-            <Text style={{ color: "#666" }}>Preview:</Text>
+          {imageUrl.trim() ? (
             <Image
               source={{ uri: imageUrl.trim() }}
               style={{
                 width: "100%",
                 height: 180,
                 borderRadius: 12,
-                backgroundColor: "#f2f2f2",
+                borderWidth: 1,
+                borderColor: "#eee",
               }}
               resizeMode="cover"
             />
-          </View>
-        ) : null}
+          ) : null}
 
-        <Pressable
-          onPress={createStrategy}
-          disabled={!canSaveStrategy}
-          style={{
-            padding: 14,
-            borderRadius: 12,
-            alignItems: "center",
-            backgroundColor: canSaveStrategy ? "#111" : "#ddd",
-            marginTop: 6,
-          }}
-        >
-          <Text style={{ color: "white", fontWeight: "900" }}>
-            Create Strategy
+          <Pressable
+            onPress={createStrategy}
+            disabled={!canSaveStrategy}
+            style={{
+              padding: 14,
+              borderRadius: 12,
+              alignItems: "center",
+              backgroundColor: canSaveStrategy ? "#111" : "#ddd",
+            }}
+          >
+            <Text style={{ color: "white", fontWeight: "900" }}>
+              Create Strategy
+            </Text>
+          </Pressable>
+        </View>
+
+        <View style={{ height: 1, backgroundColor: "#eee" }} />
+
+        {/* List strategies */}
+        <View style={{ gap: 10 }}>
+          <Text style={{ fontWeight: "900" }}>
+            Existing strategies ({strategies.length})
           </Text>
-        </Pressable>
-      </View>
 
-      {/* Strategy List + Stats */}
-      <View style={{ gap: 10 }}>
-        <Text style={{ fontSize: 18, fontWeight: "900" }}>
-          Your Strategies ({strategies.length})
-        </Text>
+          {loading ? (
+            <Text style={{ color: "#666" }}>Loading…</Text>
+          ) : strategies.length === 0 ? (
+            <Text style={{ color: "#666" }}>No strategies yet.</Text>
+          ) : (
+            strategies.map((s) => {
+              const st = statsById[s.id];
+              const count = st?.count ?? 0;
+              const sumR = st?.sumR ?? 0;
+              const wins = st?.wins ?? 0;
+              const winRate = count > 0 ? wins / count : 0;
 
-        {strategies.length === 0 ? (
-          <Text style={{ color: "#666" }}>
-            Add your first strategy above. Then log trades using that strategy.
-          </Text>
-        ) : null}
+              return (
+                <View
+                  key={s.id}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: "#eee",
+                    borderRadius: 14,
+                    padding: 12,
+                    gap: 8,
+                  }}
+                >
+                  <Text style={{ fontWeight: "900", fontSize: 16 }}>{s.name}</Text>
+                  <Text style={{ color: "#666" }}>
+                    Market:{" "}
+                    <Text style={{ fontWeight: "900" }}>{s.market.toUpperCase()}</Text>{" "}
+                    • Tags: {s.styleTags || "—"} • TF: {s.timeframes || "—"}
+                  </Text>
 
-        {strategies.map((s) => {
-          const st = statsById[s.id];
-          const tradeCount = st?.tradeCount ?? 0;
-          const winRate = st?.winRate ?? 0;
-          const avgR = st?.avgR ?? 0;
-          const totalR = st?.totalR ?? 0;
+                  <Text style={{ color: "#666" }}>
+                    Trades: <Text style={{ fontWeight: "900" }}>{count}</Text> • Total
+                    R: <Text style={{ fontWeight: "900" }}>{sumR.toFixed(2)}</Text> •
+                    Win: <Text style={{ fontWeight: "900" }}>{pct(winRate)}</Text>
+                  </Text>
 
-          return (
-            <Pressable
-              key={s.id}
-              onPress={() =>
-                router.push({
-                  pathname: "/strategy/[id]",
-                  params: { id: s.id },
-                })
-              }
-              style={{
-                borderWidth: 1,
-                borderColor: "#eee",
-                borderRadius: 14,
-                padding: 12,
-                gap: 8,
-              }}
-            >
-              <Text style={{ fontWeight: "900", fontSize: 16 }}>{s.name}</Text>
-              <Text style={{ color: "#666" }}>
-                Market: {s.market.toUpperCase()} • Tags: {s.styleTags || "—"} •
-                TF: {s.timeframes || "—"}
-              </Text>
+                  <View style={{ flexDirection: "row", gap: 10 }}>
+                    <Pressable
+                      onPress={() =>
+                        router.push({
+                          pathname: "/strategy/[id]",
+                          params: { id: s.id },
+                        })
+                      }
+                      style={{
+                        flex: 1,
+                        padding: 12,
+                        borderRadius: 12,
+                        alignItems: "center",
+                        backgroundColor: "#111",
+                      }}
+                    >
+                      <Text style={{ color: "white", fontWeight: "900" }}>
+                        View
+                      </Text>
+                    </Pressable>
 
-              {s.description ? (
-                <Text style={{ color: "#333" }}>{s.description}</Text>
-              ) : null}
-
-              {s.checklist ? (
-                <View style={{ gap: 4 }}>
-                  <Text style={{ fontWeight: "900" }}>Checklist</Text>
-                  {s.checklist
-                    .split("\n")
-                    .slice(0, 5)
-                    .map((line, i) => (
-                      <Text key={i}>• {line}</Text>
-                    ))}
+                    <Pressable
+                      onPress={() => removeStrategy(s.id)}
+                      style={{
+                        padding: 12,
+                        borderRadius: 12,
+                        alignItems: "center",
+                        borderWidth: 1,
+                        borderColor: "#ddd",
+                        backgroundColor: "white",
+                      }}
+                    >
+                      <Text style={{ fontWeight: "900" }}>Delete</Text>
+                    </Pressable>
+                  </View>
                 </View>
-              ) : null}
-
-              <View
-                style={{ height: 1, backgroundColor: "#eee", marginTop: 6 }}
-              />
-
-              <Text style={{ fontWeight: "900" }}>
-                Performance (from your logs)
-              </Text>
-              <Text style={{ color: "#666" }}>
-                Trades: {tradeCount} • Win rate: {pct(winRate)} • Avg R:{" "}
-                {avgR.toFixed(2)} • Total R: {totalR.toFixed(2)}
-              </Text>
-
-              {/* Delete button - prevent navigation */}
-              <Pressable
-                onPress={(e) => {
-                  e.stopPropagation();
-                  removeStrategy(s.id);
-                }}
-                style={{
-                  padding: 12,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: "#ddd",
-                  alignItems: "center",
-                  marginTop: 6,
-                }}
-              >
-                <Text style={{ fontWeight: "900" }}>Delete Strategy</Text>
-              </Pressable>
-            </Pressable>
-          );
-        })}
+              );
+            })
+          )}
+        </View>
       </View>
-
-      <Pressable
-        onPress={refresh}
-        style={{
-          padding: 14,
-          borderRadius: 12,
-          borderWidth: 1,
-          borderColor: "#ddd",
-          alignItems: "center",
-          marginTop: 8,
-        }}
-      >
-        <Text style={{ fontWeight: "900" }}>
-          {loading ? "Refreshing…" : "Refresh"}
-        </Text>
-      </Pressable>
     </ScrollView>
   );
 }
-
-function Label({ label }: { label: string }) {
-  return <Text style={{ fontWeight: "800" }}>{label}</Text>;
-}
-
-function Row({ children }: { children: React.ReactNode }) {
-  return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-      {children}
-    </View>
-  );
-}
-
-function Chip({
-  text,
-  active,
-  onPress,
-}: {
-  text: string;
-  active: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={{
-        paddingVertical: 10,
-        paddingHorizontal: 12,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: active ? "#111" : "#ddd",
-        backgroundColor: active ? "#111" : "white",
-      }}
-    >
-      <Text style={{ color: active ? "white" : "#111", fontWeight: "900" }}>
-        {text}
-      </Text>
-    </Pressable>
-  );
-}
-
-const inputStyle = {
-  borderWidth: 1,
-  borderColor: "#ddd",
-  borderRadius: 12,
-  padding: 12,
-  backgroundColor: "white",
-} as const;
