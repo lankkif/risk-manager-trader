@@ -1,14 +1,15 @@
+import { router } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-    Animated,
-    Pressable,
-    ScrollView,
-    Switch,
-    Text,
-    TextInput,
-    View,
+  Animated,
+  Pressable,
+  ScrollView,
+  Switch,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
-import { getSetting, setSetting } from "../../src/db/db";
+import { getSetting, setSetting } from "~/db/db";
 
 type SettingsState = {
   // rules
@@ -265,6 +266,58 @@ export default function SettingsTab() {
       >
         <Text style={{ fontSize: 24, fontWeight: "800" }}>Rules & Limits</Text>
 
+        {/* ✅ SINGLE CONTROL ROOM BANNER */}
+        <View
+          style={{
+            padding: 12,
+            borderWidth: 1,
+            borderColor: "#eee",
+            borderRadius: 12,
+            gap: 10,
+            backgroundColor: "#fafafa",
+          }}
+        >
+          <Text style={{ fontWeight: "900", fontSize: 16 }}>
+            Single Control Room
+          </Text>
+          <Text style={{ color: "#666" }}>
+            All Mode (Demo/Real), Override, and Gate Rules are controlled here.
+          </Text>
+          <Text style={{ color: "#666" }}>
+            The Admin tab is for Strategy Management only.
+          </Text>
+
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <Pressable
+              onPress={() => router.push("/")}
+              style={{
+                paddingVertical: 12,
+                paddingHorizontal: 14,
+                borderRadius: 12,
+                backgroundColor: "#111",
+              }}
+            >
+              <Text style={{ color: "white", fontWeight: "900" }}>
+                Go to Status
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => router.push("/explore")}
+              style={{
+                paddingVertical: 12,
+                paddingHorizontal: 14,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: "#ddd",
+                backgroundColor: "white",
+              }}
+            >
+              <Text style={{ fontWeight: "900" }}>Go to Admin</Text>
+            </Pressable>
+          </View>
+        </View>
+
         {loading ? <Text>Loading…</Text> : null}
 
         {!loading && (status === "saving" || status === "error") ? (
@@ -397,9 +450,7 @@ export default function SettingsTab() {
           <RowSwitch
             label="Require Daily Plan before trading"
             value={s.requireDailyPlan}
-            onValueChange={(v) =>
-              setS((p) => ({ ...p, requireDailyPlan: v }))
-            }
+            onValueChange={(v) => setS((p) => ({ ...p, requireDailyPlan: v }))}
           />
 
           <RowSwitch
