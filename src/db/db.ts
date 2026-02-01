@@ -668,7 +668,8 @@ export async function getTradeById(tradeId: string): Promise<TradeRow | null> {
     session: row.session ?? "",
     timeframe: row.timeframe ?? "",
     riskR: typeof row.risk_r === "number" ? row.risk_r : null,
-    resultR: typeof row.result_r === "number" ? row.result_r : Number(row.result_r),
+    resultR:
+      typeof row.result_r === "number" ? row.result_r : Number(row.result_r),
     ruleBreaks: formatRuleBreaks(parseRuleBreaks(row.rule_breaks ?? "")),
     tags: row.tags ?? "",
     notes: row.notes ?? "",
@@ -816,6 +817,34 @@ export async function getTradeStatsForDay(
 
 /** ---------------- Insights helpers ---------------- **/
 export type RecentTradeRow = TradeRow;
+
+/**
+ * ✅ REQUIRED by Insights screen
+ * Returns distinct day keys for the selected window (7/14/30).
+ */
+export async function getRecentTradeDayKeysForWindow(
+  windowDays: number = 14,
+  limit: number = 60
+): Promise<string[]> {
+  const database = getDb();
+  const startMs = startOfWindowMs(windowDays);
+  const safeLimit = Math.max(1, Math.floor(limit || 1));
+
+  const rows = await database.getAllAsync<{ day_key: string }>(
+    `
+    SELECT
+      strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') AS day_key
+    FROM trades
+    WHERE created_at >= ?
+    GROUP BY day_key
+    ORDER BY day_key DESC
+    LIMIT ?;
+    `,
+    [startMs, safeLimit]
+  );
+
+  return rows.map((r) => r.day_key).filter(Boolean);
+}
 
 /**
  * Kept for compatibility: recent trades since start of dayKey.
