@@ -1,4 +1,5 @@
 import { openDatabaseSync, SQLiteDatabase } from "expo-sqlite";
+import { formatRuleBreaks, parseRuleBreaks } from "../constants/ruleBreaks";
 import { DB_NAME, SQL_CREATE_TABLES } from "./schema";
 
 let db: SQLiteDatabase | null = null;
@@ -364,10 +365,6 @@ export type StrategyStats = {
   totalR: number;
 };
 
-/**
- * ✅ Uses strategy table where possible (human-friendly names),
- * but also supports legacy trades where strategy_name was stored directly.
- */
 export async function getStrategyStats(): Promise<Record<string, StrategyStats>> {
   const database = getDb();
 
@@ -443,7 +440,8 @@ export async function insertTrade(t: TradeInsert) {
       t.timeframe ?? "",
       typeof t.riskR === "number" ? t.riskR : null,
       t.resultR,
-      t.ruleBreaks ?? "",
+      // ✅ normalize rule breaks before saving
+      t.ruleBreaks ? formatRuleBreaks(parseRuleBreaks(t.ruleBreaks)) : "",
       t.tags ?? "",
       t.notes ?? "",
     ]
@@ -537,7 +535,8 @@ export async function listTrades(params: ListTradesParams): Promise<TradeRow[]> 
     timeframe: r.timeframe ?? "",
     riskR: typeof r.risk_r === "number" ? r.risk_r : null,
     resultR: typeof r.result_r === "number" ? r.result_r : Number(r.result_r),
-    ruleBreaks: r.rule_breaks ?? "",
+    // ✅ normalize on read (older DB rows may contain messy codes)
+    ruleBreaks: formatRuleBreaks(parseRuleBreaks(r.rule_breaks ?? "")),
     tags: r.tags ?? "",
     notes: r.notes ?? "",
   }));
@@ -549,31 +548,31 @@ export async function getTradeById(tradeId: string): Promise<TradeRow | null> {
   const row = await database.getFirstAsync<{
     id: string;
     created_at: number;
-    strategy_id: string;
-    strategy_name: string;
-    bias: string;
-    session: string;
-    timeframe: string;
+    strategy_id: string | null;
+    strategy_name: string | null;
+    bias: string | null;
+    session: string | null;
+    timeframe: string | null;
     risk_r: number | null;
     result_r: number;
-    rule_breaks: string;
-    tags: string;
-    notes: string;
+    rule_breaks: string | null;
+    tags: string | null;
+    notes: string | null;
   }>(
     `
     SELECT
       id,
       created_at,
-      COALESCE(strategy_id, '') AS strategy_id,
-      COALESCE(strategy_name, '') AS strategy_name,
-      COALESCE(bias, '') AS bias,
-      COALESCE(session, '') AS session,
-      COALESCE(timeframe, '') AS timeframe,
+      strategy_id,
+      strategy_name,
+      bias,
+      session,
+      timeframe,
       risk_r,
       result_r,
-      COALESCE(rule_breaks, '') AS rule_breaks,
-      COALESCE(tags, '') AS tags,
-      COALESCE(notes, '') AS notes
+      rule_breaks,
+      tags,
+      notes
     FROM trades
     WHERE id = ?
     LIMIT 1;
@@ -592,13 +591,17 @@ export async function getTradeById(tradeId: string): Promise<TradeRow | null> {
     session: row.session ?? "",
     timeframe: row.timeframe ?? "",
     riskR: typeof row.risk_r === "number" ? row.risk_r : null,
-    resultR: typeof row.result_r === "number"
-      ? row.result_r
-      : Number(row.result_r),
-    ruleBreaks: row.rule_breaks ?? "",
+    resultR: typeof row.result_r === "number" ? row.result_r : Number(row.result_r),
+    // ✅ normalize on read
+    ruleBreaks: formatRuleBreaks(parseRuleBreaks(row.rule_breaks ?? "")),
     tags: row.tags ?? "",
     notes: row.notes ?? "",
   };
+}
+
+export async function deleteTrade(tradeId: string): Promise<void> {
+  const database = getDb();
+  await database.runAsync("DELETE FROM trades WHERE id = ?;", [tradeId]);
 }
 
 export async function updateTradeTags(
@@ -623,105 +626,68 @@ export async function updateTradeNotes(
   ]);
 }
 
-export async function deleteTrade(tradeId: string): Promise<void> {
-  const database = getDb();
-  await database.runAsync("DELETE FROM trades WHERE id = ?;", [tradeId]);
-}
-
-export async function getRecentTradeDayKeys(limit = 14): Promise<string[]> {
-  const database = getDb();
-
-  const rows = await database.getAllAsync<{ day_key: string }>(
-    `
-    SELECT
-      strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') AS day_key
-    FROM trades
-    GROUP BY day_key
-    ORDER BY day_key DESC
-    LIMIT ?;
-    `,
-    [limit]
-  );
-
-  return rows.map((r) => r.day_key).filter(Boolean);
-}
-
-/** Trade stats for a given day (used by Dashboard "Today"). */
-export type TradeStats = {
-  tradeCount: number;
-  sumR: number;
-  consecutiveLosses: number;
-  wins: number;
-  winRate: number;
-  avgR: number;
-  totalR: number;
+/** ---------------- Dashboard / Insights ---------------- **/
+export type DashboardSummary = {
+  todayTrades: number;
+  todayNetR: number;
+  todayWinRate: number;
+  totalTrades: number;
+  totalNetR: number;
 };
 
-export async function getTradeStatsForDay(dayKey: string): Promise<TradeStats> {
+export async function getDashboardSummary(dayKey: string): Promise<DashboardSummary> {
   const database = getDb();
   const { startMs, endMs } = getDayStartEndMs(dayKey);
 
-  const totals = await database.getFirstAsync<{
+  const today = await database.getFirstAsync<{
     c: number;
-    s: number;
+    netR: number;
     wins: number;
-    avgR: number;
   }>(
     `
     SELECT
       COUNT(*) AS c,
-      COALESCE(SUM(result_r), 0) AS s,
-      COALESCE(SUM(CASE WHEN result_r > 0 THEN 1 ELSE 0 END), 0) AS wins,
-      COALESCE(AVG(result_r), 0) AS avgR
+      COALESCE(SUM(result_r), 0) AS netR,
+      COALESCE(SUM(CASE WHEN result_r > 0 THEN 1 ELSE 0 END), 0) AS wins
     FROM trades
     WHERE created_at >= ? AND created_at < ?;
     `,
     [startMs, endMs]
   );
 
-  const rows = await database.getAllAsync<{ result_r: number }>(
-    `SELECT result_r
-     FROM trades
-     WHERE created_at >= ? AND created_at < ?
-     ORDER BY created_at DESC
-     LIMIT 50;`,
-    [startMs, endMs]
+  const all = await database.getFirstAsync<{
+    c: number;
+    netR: number;
+  }>(
+    `
+    SELECT
+      COUNT(*) AS c,
+      COALESCE(SUM(result_r), 0) AS netR
+    FROM trades;
+    `
   );
 
-  let streak = 0;
-  for (const r of rows) {
-    if (typeof r.result_r === "number" && r.result_r < 0) streak++;
-    else break;
-  }
-
-  const tradeCount = totals?.c ?? 0;
-  const sumR = totals?.s ?? 0;
-  const wins = totals?.wins ?? 0;
-  const avgR = totals?.avgR ?? 0;
-  const winRate = tradeCount > 0 ? wins / tradeCount : 0;
+  const todayTrades = today?.c ?? 0;
+  const todayWins = today?.wins ?? 0;
 
   return {
-    tradeCount,
-    sumR,
-    consecutiveLosses: streak,
-    wins,
-    winRate,
-    avgR,
-    totalR: sumR,
+    todayTrades,
+    todayNetR: today?.netR ?? 0,
+    todayWinRate: todayTrades ? todayWins / todayTrades : 0,
+    totalTrades: all?.c ?? 0,
+    totalNetR: all?.netR ?? 0,
   };
 }
 
-/**
- * ✅ Step 27 helper: list trades from the last N days (used by Journal windows like 7/14/30).
- * This does NOT replace listTrades(); it’s just a convenience wrapper.
- */
-export async function listTradesRecent(
-  days: number,
-  limit = 400
-): Promise<TradeRow[]> {
+/** ---------------- Insights helpers ---------------- **/
+export type RecentTradeRow = TradeRow;
+
+export async function getRecentTrades(
+  dayKey: string,
+  limit = 25
+): Promise<RecentTradeRow[]> {
   const database = getDb();
-  const now = Date.now();
-  const startMs = now - Math.max(1, days) * 24 * 60 * 60 * 1000;
+  const { startMs } = getDayStartEndMs(dayKey);
 
   const rows = await database.getAllAsync<{
     id: string;
@@ -769,36 +735,125 @@ export async function listTradesRecent(
     timeframe: r.timeframe ?? "",
     riskR: typeof r.risk_r === "number" ? r.risk_r : null,
     resultR: typeof r.result_r === "number" ? r.result_r : Number(r.result_r),
-    ruleBreaks: r.rule_breaks ?? "",
+    // ✅ normalize on read
+    ruleBreaks: formatRuleBreaks(parseRuleBreaks(r.rule_breaks ?? "")),
     tags: r.tags ?? "",
     notes: r.notes ?? "",
   }));
 }
 
-/**
- * ✅ Step 27 helper: get distinct trade day-keys within the last N days.
- * Useful for grouping the Journal list by day.
- */
-export async function getRecentTradeDayKeysForWindow(
-  days: number,
-  limit = 30
-): Promise<string[]> {
-  const database = getDb();
-  const now = Date.now();
-  const startMs = now - Math.max(1, days) * 24 * 60 * 60 * 1000;
+/** ---------------- Strategy Detail ---------------- **/
+export async function listTradesByStrategy(
+  strategyId: string,
+  limit = 200
+): Promise<TradeRow[]> {
+  return listTrades({ strategyId, limit });
+}
 
-  const rows = await database.getAllAsync<{ day_key: string }>(
+export type StrategyDetail = {
+  strategy: Strategy | null;
+  trades: TradeRow[];
+};
+
+export async function getStrategyDetail(strategyId: string): Promise<StrategyDetail> {
+  const database = getDb();
+
+  const s = await database.getFirstAsync<{
+    id: string;
+    created_at: number;
+    updated_at: number;
+    name: string;
+    market: string;
+    style_tags: string;
+    timeframes: string;
+    description: string;
+    checklist: string;
+    image_url: string;
+  }>(
     `
     SELECT
-      strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') AS day_key
-    FROM trades
-    WHERE created_at >= ?
-    GROUP BY day_key
-    ORDER BY day_key DESC
-    LIMIT ?;
+      id,
+      created_at,
+      updated_at,
+      name,
+      market,
+      style_tags,
+      timeframes,
+      description,
+      checklist,
+      image_url
+    FROM strategies
+    WHERE id = ?
+    LIMIT 1;
     `,
-    [startMs, limit]
+    [strategyId]
   );
 
-  return rows.map((r) => r.day_key).filter(Boolean);
+  const strategy: Strategy | null = s
+    ? {
+        id: s.id,
+        createdAt: s.created_at,
+        updatedAt: s.updated_at,
+        name: s.name,
+        market: (s.market as StrategyMarket) ?? "both",
+        styleTags: s.style_tags ?? "",
+        timeframes: s.timeframes ?? "",
+        description: s.description ?? "",
+        checklist: s.checklist ?? "",
+        imageUrl: s.image_url ?? "",
+      }
+    : null;
+
+  const trades = await database.getAllAsync<{
+    id: string;
+    created_at: number;
+    strategy_id: string | null;
+    strategy_name: string | null;
+    bias: string | null;
+    session: string | null;
+    timeframe: string | null;
+    risk_r: number | null;
+    result_r: number;
+    rule_breaks: string | null;
+    tags: string | null;
+    notes: string | null;
+  }>(
+    `
+    SELECT
+      id,
+      created_at,
+      strategy_id,
+      strategy_name,
+      bias,
+      session,
+      timeframe,
+      risk_r,
+      result_r,
+      rule_breaks,
+      tags,
+      notes
+    FROM trades
+    WHERE strategy_id = ?
+    ORDER BY created_at DESC
+    LIMIT 200;
+    `,
+    [strategyId]
+  );
+
+  const mapped = trades.map((r) => ({
+    id: r.id,
+    createdAt: r.created_at,
+    strategyId: r.strategy_id ?? "",
+    strategyName: r.strategy_name ?? "",
+    bias: r.bias ?? "",
+    session: r.session ?? "",
+    timeframe: r.timeframe ?? "",
+    riskR: typeof r.risk_r === "number" ? r.risk_r : null,
+    resultR: typeof r.result_r === "number" ? r.result_r : Number(r.result_r),
+    ruleBreaks: formatRuleBreaks(parseRuleBreaks(r.rule_breaks ?? "")),
+    tags: r.tags ?? "",
+    notes: r.notes ?? "",
+  }));
+
+  return { strategy, trades: mapped };
 }
