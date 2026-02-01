@@ -28,7 +28,7 @@ export async function initDb(): Promise<void> {
   const database = getDb();
   await database.execAsync(SQL_CREATE_TABLES);
 
-  // ✅ Step 19: migrate existing DBs to include tags column
+  // ✅ migrate existing DBs to include tags column
   await ensureTradesHasTagsColumn(database);
 
   // ✅ Backfill strategy_name for older trades where it's missing
@@ -54,6 +54,20 @@ function getDayStartEndMs(dayKey: string) {
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
   return { startMs: start.getTime(), endMs: end.getTime() };
+}
+
+function startOfTodayMs() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function startOfWindowMs(windowDays: number) {
+  const days = Math.max(1, Math.floor(windowDays || 1));
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - (days - 1)); // include today
+  return d.getTime();
 }
 
 /** ---------------- Settings ---------------- **/
@@ -119,7 +133,6 @@ export async function hasDailyPlan(dayKey: string): Promise<boolean> {
   return (row?.c ?? 0) > 0;
 }
 
-/** ✅ Load plan for edit */
 export async function getDailyPlan(dayKey: string): Promise<DailyPlanRow | null> {
   const database = getDb();
 
@@ -215,7 +228,6 @@ export async function hasDailyCloseout(dayKey: string): Promise<boolean> {
   return (row?.c ?? 0) > 0;
 }
 
-/** ✅ Load closeout for edit */
 export async function getDailyCloseout(
   dayKey: string
 ): Promise<DailyCloseoutRow | null> {
@@ -535,7 +547,72 @@ export async function listTrades(params: ListTradesParams): Promise<TradeRow[]> 
     timeframe: r.timeframe ?? "",
     riskR: typeof r.risk_r === "number" ? r.risk_r : null,
     resultR: typeof r.result_r === "number" ? r.result_r : Number(r.result_r),
-    // ✅ normalize on read (older DB rows may contain messy codes)
+    ruleBreaks: formatRuleBreaks(parseRuleBreaks(r.rule_breaks ?? "")),
+    tags: r.tags ?? "",
+    notes: r.notes ?? "",
+  }));
+}
+
+/**
+ * ✅ REQUIRED by Journal/Insights
+ * Windowed list (7/14/30 days etc).
+ */
+export async function listTradesRecent(
+  windowDays: number = 14,
+  limit: number = 700
+): Promise<TradeRow[]> {
+  const database = getDb();
+
+  const startMs = startOfWindowMs(windowDays);
+  const nowMs = Date.now();
+  const safeLimit = Math.max(1, Math.floor(limit || 1));
+
+  const rows = await database.getAllAsync<{
+    id: string;
+    created_at: number;
+    strategy_id: string;
+    strategy_name: string;
+    bias: string;
+    session: string;
+    timeframe: string;
+    risk_r: number | null;
+    result_r: number;
+    rule_breaks: string;
+    tags: string;
+    notes: string;
+  }>(
+    `
+    SELECT
+      id,
+      created_at,
+      COALESCE(strategy_id, '') AS strategy_id,
+      COALESCE(strategy_name, '') AS strategy_name,
+      COALESCE(bias, '') AS bias,
+      COALESCE(session, '') AS session,
+      COALESCE(timeframe, '') AS timeframe,
+      risk_r,
+      result_r,
+      COALESCE(rule_breaks, '') AS rule_breaks,
+      COALESCE(tags, '') AS tags,
+      COALESCE(notes, '') AS notes
+    FROM trades
+    WHERE created_at >= ? AND created_at <= ?
+    ORDER BY created_at DESC
+    LIMIT ?;
+    `,
+    [startMs, nowMs, safeLimit]
+  );
+
+  return rows.map((r) => ({
+    id: r.id,
+    createdAt: r.created_at,
+    strategyId: r.strategy_id ?? "",
+    strategyName: r.strategy_name ?? "",
+    bias: r.bias ?? "",
+    session: r.session ?? "",
+    timeframe: r.timeframe ?? "",
+    riskR: typeof r.risk_r === "number" ? r.risk_r : null,
+    resultR: typeof r.result_r === "number" ? r.result_r : Number(r.result_r),
     ruleBreaks: formatRuleBreaks(parseRuleBreaks(r.rule_breaks ?? "")),
     tags: r.tags ?? "",
     notes: r.notes ?? "",
@@ -592,7 +669,6 @@ export async function getTradeById(tradeId: string): Promise<TradeRow | null> {
     timeframe: row.timeframe ?? "",
     riskR: typeof row.risk_r === "number" ? row.risk_r : null,
     resultR: typeof row.result_r === "number" ? row.result_r : Number(row.result_r),
-    // ✅ normalize on read
     ruleBreaks: formatRuleBreaks(parseRuleBreaks(row.rule_breaks ?? "")),
     tags: row.tags ?? "",
     notes: row.notes ?? "",
@@ -635,7 +711,9 @@ export type DashboardSummary = {
   totalNetR: number;
 };
 
-export async function getDashboardSummary(dayKey: string): Promise<DashboardSummary> {
+export async function getDashboardSummary(
+  dayKey: string
+): Promise<DashboardSummary> {
   const database = getDb();
   const { startMs, endMs } = getDayStartEndMs(dayKey);
 
@@ -679,9 +757,70 @@ export async function getDashboardSummary(dayKey: string): Promise<DashboardSumm
   };
 }
 
+/**
+ * ✅ REQUIRED by Dashboard + Gate
+ * Provides a stable daily stats object.
+ */
+export type TradeStatsForDay = {
+  dayKey: string;
+  tradeCount: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  totalR: number;
+  avgR: number;
+};
+
+export async function getTradeStatsForDay(
+  dayKey: string
+): Promise<TradeStatsForDay> {
+  const database = getDb();
+  const { startMs, endMs } = getDayStartEndMs(dayKey);
+
+  const row = await database.getFirstAsync<{
+    c: number;
+    wins: number;
+    losses: number;
+    totalR: number;
+    avgR: number;
+  }>(
+    `
+    SELECT
+      COUNT(*) AS c,
+      COALESCE(SUM(CASE WHEN result_r > 0 THEN 1 ELSE 0 END), 0) AS wins,
+      COALESCE(SUM(CASE WHEN result_r < 0 THEN 1 ELSE 0 END), 0) AS losses,
+      COALESCE(SUM(result_r), 0) AS totalR,
+      COALESCE(AVG(result_r), 0) AS avgR
+    FROM trades
+    WHERE created_at >= ? AND created_at < ?;
+    `,
+    [startMs, endMs]
+  );
+
+  const tradeCount = row?.c ?? 0;
+  const wins = row?.wins ?? 0;
+  const losses = row?.losses ?? 0;
+  const totalR = row?.totalR ?? 0;
+  const avgR = row?.avgR ?? 0;
+
+  return {
+    dayKey,
+    tradeCount,
+    wins,
+    losses,
+    winRate: tradeCount > 0 ? wins / tradeCount : 0,
+    totalR,
+    avgR,
+  };
+}
+
 /** ---------------- Insights helpers ---------------- **/
 export type RecentTradeRow = TradeRow;
 
+/**
+ * Kept for compatibility: recent trades since start of dayKey.
+ * (Not used by Journal, but used in some screens.)
+ */
 export async function getRecentTrades(
   dayKey: string,
   limit = 25
@@ -735,7 +874,6 @@ export async function getRecentTrades(
     timeframe: r.timeframe ?? "",
     riskR: typeof r.risk_r === "number" ? r.risk_r : null,
     resultR: typeof r.result_r === "number" ? r.result_r : Number(r.result_r),
-    // ✅ normalize on read
     ruleBreaks: formatRuleBreaks(parseRuleBreaks(r.rule_breaks ?? "")),
     tags: r.tags ?? "",
     notes: r.notes ?? "",
@@ -755,7 +893,9 @@ export type StrategyDetail = {
   trades: TradeRow[];
 };
 
-export async function getStrategyDetail(strategyId: string): Promise<StrategyDetail> {
+export async function getStrategyDetail(
+  strategyId: string
+): Promise<StrategyDetail> {
   const database = getDb();
 
   const s = await database.getFirstAsync<{
