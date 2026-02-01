@@ -1,5 +1,5 @@
 import { useFocusEffect } from "@react-navigation/native";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import {
   getDailyCloseout,
@@ -29,6 +29,7 @@ type SaveState = "idle" | "saving" | "saved";
 export default function CloseoutTab() {
   const key = useMemo(() => todayKey(), []);
   const [loading, setLoading] = useState(true);
+
   const [saved, setSaved] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
 
@@ -43,9 +44,14 @@ export default function CloseoutTab() {
 
   const [mode, setMode] = useState<"demo" | "real">("demo");
 
-  // save feedback
+  // ✅ Save feedback + dirty tracking (Saved stays until next edit)
   const [saveState, setSaveState] = useState<SaveState>("idle");
-  const saveResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [dirty, setDirty] = useState(false);
+
+  const markDirty = useCallback(() => {
+    setDirty(true);
+    if (saveState === "saved") setSaveState("idle");
+  }, [saveState]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -66,8 +72,23 @@ export default function CloseoutTab() {
         setImprovement(row.improvement ?? "");
         setExecutionGrade(row.executionGrade ?? "");
         setLastSavedAt(row.createdAt ?? null);
+
+        // ✅ Default to Saved ✅ (until user edits)
+        setSaveState("saved");
+        setDirty(false);
       } else {
+        // Fresh day: keep defaults, not saved yet
+        setBias("");
+        setNewsCaution(false);
+        setMood(3);
+        setMistakes("");
+        setWins("");
+        setImprovement("");
+        setExecutionGrade("");
         setLastSavedAt(null);
+
+        setSaveState("idle");
+        setDirty(false);
       }
     } finally {
       setLoading(false);
@@ -77,58 +98,60 @@ export default function CloseoutTab() {
   useFocusEffect(
     useCallback(() => {
       refresh();
-      return () => {
-        if (saveResetTimer.current) {
-          clearTimeout(saveResetTimer.current);
-          saveResetTimer.current = null;
-        }
-      };
     }, [refresh])
   );
 
-  async function save() {
-    if (saveState === "saving") return;
+  const canSave = useMemo(() => {
+    if (loading) return false;
+    if (saveState === "saving") return false;
+    // ✅ allow saving if it's not saved yet OR you changed something
+    if (!saved) return true;
+    return dirty;
+  }, [loading, saveState, saved, dirty]);
 
-    if (saveResetTimer.current) {
-      clearTimeout(saveResetTimer.current);
-      saveResetTimer.current = null;
-    }
+  async function save() {
+    if (!canSave) return;
+    if (saveState === "saving") return;
 
     setSaveState("saving");
 
-    await upsertDailyCloseout(key, {
-      bias,
-      newsCaution,
-      mood,
-      mistakes,
-      wins,
-      improvement,
-      executionGrade,
-    });
+    try {
+      await upsertDailyCloseout(key, {
+        bias: bias.trim(),
+        newsCaution,
+        mood,
+        mistakes: mistakes.trim(),
+        wins: wins.trim(),
+        improvement: improvement.trim(),
+        executionGrade: executionGrade.trim(),
+      });
 
-    const now = Date.now();
-    setSaved(true);
-    setLastSavedAt(now);
+      const now = Date.now();
+      setSaved(true);
+      setLastSavedAt(now);
 
-    setSaveState("saved");
-    saveResetTimer.current = setTimeout(() => {
+      // ✅ Saved stays until user edits again
+      setSaveState("saved");
+      setDirty(false);
+    } catch (e) {
+      console.warn("Save closeout failed:", e);
       setSaveState("idle");
-      saveResetTimer.current = null;
-    }, 1200);
+    }
   }
 
-  const headerBorder =
-    saved || saveState === "saved" ? "#b7f7c1" : "#ffd38a";
-  const headerBg = saved || saveState === "saved" ? "#f2fff4" : "#fff7ea";
+  const isSavedNow = saveState === "saved" && !dirty;
+
+  const headerBorder = isSavedNow ? "#b7f7c1" : saved ? "#ffd38a" : "#ffd38a";
+  const headerBg = isSavedNow ? "#f2fff4" : "#fff7ea";
 
   const buttonText =
     saveState === "saving"
       ? "Saving…"
-      : saveState === "saved"
+      : isSavedNow
       ? "Saved ✅"
       : "Save Closeout";
 
-  const buttonBg = saveState === "saved" ? "#0a7a2f" : "#111";
+  const buttonBg = isSavedNow ? "#0a7a2f" : canSave ? "#111" : "#bbb";
 
   return (
     <ScrollView
@@ -149,7 +172,7 @@ export default function CloseoutTab() {
         }}
       >
         <Text style={{ fontWeight: "900" }}>
-          {saved ? "✅ Closeout complete" : "⚠ Closeout not done"}
+          {isSavedNow ? "✅ Closeout complete" : "⚠ Closeout not done"}
         </Text>
 
         <Text style={{ color: "#666" }}>
@@ -168,12 +191,25 @@ export default function CloseoutTab() {
           You will NOT be locked out. In Real mode, missing closeout is a warning
           (and can be logged as a rule break later).
         </Text>
+
+        <Text style={{ color: isSavedNow ? "#0a7a2f" : "#666", fontWeight: "900" }}>
+          {loading
+            ? "Loading…"
+            : saveState === "saving"
+            ? "Saving…"
+            : isSavedNow
+            ? "Saved ✅"
+            : "Not saved"}
+        </Text>
       </View>
 
       <Text style={{ fontWeight: "900" }}>Bias (how you traded)</Text>
       <TextInput
         value={bias}
-        onChangeText={setBias}
+        onChangeText={(v) => {
+          markDirty();
+          setBias(v);
+        }}
         placeholder="Bull / Bear / Neutral + why"
         style={inputStyle}
       />
@@ -183,9 +219,19 @@ export default function CloseoutTab() {
         <Chip
           text="No"
           active={!newsCaution}
-          onPress={() => setNewsCaution(false)}
+          onPress={() => {
+            markDirty();
+            setNewsCaution(false);
+          }}
         />
-        <Chip text="Yes" active={newsCaution} onPress={() => setNewsCaution(true)} />
+        <Chip
+          text="Yes"
+          active={newsCaution}
+          onPress={() => {
+            markDirty();
+            setNewsCaution(true);
+          }}
+        />
       </View>
 
       <Text style={{ fontWeight: "900" }}>Mood (1–5)</Text>
@@ -195,7 +241,10 @@ export default function CloseoutTab() {
             key={n}
             text={String(n)}
             active={mood === n}
-            onPress={() => setMood(n)}
+            onPress={() => {
+              markDirty();
+              setMood(n);
+            }}
           />
         ))}
       </View>
@@ -203,7 +252,10 @@ export default function CloseoutTab() {
       <Text style={{ fontWeight: "900" }}>Mistakes</Text>
       <TextInput
         value={mistakes}
-        onChangeText={setMistakes}
+        onChangeText={(v) => {
+          markDirty();
+          setMistakes(v);
+        }}
         placeholder="chased, moved SL, revenge trade, ignored level…"
         style={[inputStyle, { height: 90, textAlignVertical: "top" }]}
         multiline
@@ -212,7 +264,10 @@ export default function CloseoutTab() {
       <Text style={{ fontWeight: "900" }}>Wins</Text>
       <TextInput
         value={wins}
-        onChangeText={setWins}
+        onChangeText={(v) => {
+          markDirty();
+          setWins(v);
+        }}
         placeholder="waited for setup, respected risk, stopped after limit…"
         style={[inputStyle, { height: 90, textAlignVertical: "top" }]}
         multiline
@@ -221,7 +276,10 @@ export default function CloseoutTab() {
       <Text style={{ fontWeight: "900" }}>1 improvement for tomorrow</Text>
       <TextInput
         value={improvement}
-        onChangeText={setImprovement}
+        onChangeText={(v) => {
+          markDirty();
+          setImprovement(v);
+        }}
         placeholder="One thing only. Practical + measurable."
         style={[inputStyle, { height: 80, textAlignVertical: "top" }]}
         multiline
@@ -230,21 +288,24 @@ export default function CloseoutTab() {
       <Text style={{ fontWeight: "900" }}>Execution grade (A–F)</Text>
       <TextInput
         value={executionGrade}
-        onChangeText={setExecutionGrade}
+        onChangeText={(v) => {
+          markDirty();
+          setExecutionGrade(v);
+        }}
         placeholder="A / B / C / D / F"
         style={inputStyle}
       />
 
       <Pressable
         onPress={save}
-        disabled={loading || saveState === "saving"}
+        disabled={!canSave}
         style={{
           backgroundColor: buttonBg,
           padding: 14,
           borderRadius: 12,
           alignItems: "center",
           marginTop: 6,
-          opacity: loading ? 0.6 : 1,
+          opacity: loading || saveState === "saving" ? 0.7 : 1,
         }}
       >
         <Text style={{ color: "white", fontWeight: "900" }}>
