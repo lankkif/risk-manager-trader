@@ -1,22 +1,22 @@
-import { Link } from "expo-router";
+import { router } from "expo-router";
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 
-type MenuItemProps = {
+type ItemProps = {
   title: string;
   subtitle?: string;
-  href?: string;
+  onPress?: () => void;
   badge?: string;
   disabled?: boolean;
 };
 
-function MenuItem({ title, subtitle, href, badge, disabled }: MenuItemProps) {
-  const content = (
+function MenuItem({ title, subtitle, onPress, badge, disabled }: ItemProps) {
+  return (
     <Pressable
-      disabled={disabled}
+      onPress={disabled ? undefined : onPress}
       style={({ pressed }) => [
         styles.item,
         pressed && !disabled ? styles.itemPressed : null,
@@ -43,15 +43,13 @@ function MenuItem({ title, subtitle, href, badge, disabled }: MenuItemProps) {
       )}
     </Pressable>
   );
+}
 
-  // If disabled or no href, render static row
-  if (disabled || !href) return content;
-
-  // ✅ dismissTo is boolean in your router types — it dismisses the modal when navigating
+function Section({ title }: { title: string }) {
   return (
-    <Link href={href as any} dismissTo asChild>
-      {content}
-    </Link>
+    <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
+      {title}
+    </ThemedText>
   );
 }
 
@@ -61,111 +59,112 @@ export default function ModalScreen() {
       <View style={styles.header}>
         <ThemedText type="title">Menu</ThemedText>
         <ThemedText type="default" style={styles.headerSubtitle}>
-          Risk Manager Trader — control room
+          Risk Manager Trader — Control Room
         </ThemedText>
       </View>
 
-      {/* QUICK NAV */}
-      <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
-        Quick
-      </ThemedText>
+      <ScrollView contentContainerStyle={styles.scroll}>
+        {/* QUICK */}
+        <Section title="Quick" />
+        <MenuItem
+          title="Home (Dashboard)"
+          subtitle="Command Center overview"
+          onPress={() => router.replace("/")}
+        />
+        <MenuItem
+          title="Log Trade"
+          subtitle="Quick entry (strategy + R + notes)"
+          onPress={() => router.push("/new-trade")}
+        />
+        <MenuItem
+          title="Trades"
+          subtitle="All trades (filters + detail)"
+          onPress={() => router.push("/journal")}
+        />
+        <MenuItem
+          title="Journal"
+          subtitle="Daily closeout + reflection"
+          onPress={() => router.push("/closeout")}
+        />
+        <MenuItem
+          title="Strategies"
+          subtitle="Playbook + checklists"
+          onPress={() => router.push("/explore")}
+        />
 
-      <MenuItem title="Home (Dashboard)" subtitle="Command Center overview" href="/" />
+        {/* CONTROLS */}
+        <Section title="Controls" />
+        <MenuItem
+          title="Risk Manager (Rules Setup)"
+          subtitle="Account rules, limits, sessions, instruments"
+          onPress={() => router.push("/settings")}
+        />
+        <MenuItem
+          title="Risk Pilot (Enforcement)"
+          subtitle="Soft/Hard mode, lockouts, cooldowns"
+          onPress={() => router.push("/settings")}
+        />
+        <MenuItem
+          title="Daily Plan"
+          subtitle="Pre-session plan & scenarios"
+          onPress={() => router.push("/plan")}
+        />
+        <MenuItem
+          title="Detailed Metrics"
+          subtitle="Full analytics breakdown"
+          onPress={() => router.push("/insights")}
+        />
 
-      <MenuItem
-        title="Detailed Metrics"
-        subtitle="Full analytics breakdown"
-        href="/insights"
-      />
+        {/* UTILITIES */}
+        <Section title="Utilities" />
+        <MenuItem
+          title="Export Data"
+          subtitle="CSV / JSON backup"
+          badge="Soon"
+          disabled
+        />
+        <MenuItem
+          title="Notifications"
+          subtitle="Session start/end + reminders"
+          badge="Soon"
+          disabled
+        />
+        <MenuItem title="Help / FAQ" subtitle="How the app works" badge="Soon" disabled />
 
-      <MenuItem
-        title="Daily Plan"
-        subtitle="Pre-session plan and scenarios"
-        href="/plan"
-      />
+        {/* FOOTER */}
+        <View style={styles.footer}>
+          <ThemedText type="default" style={styles.footerText}>
+            Tip: Keep the bottom tabs clean. Use this menu for rules + controls.
+          </ThemedText>
 
-      {/* CORE CONFIG */}
-      <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
-        Controls
-      </ThemedText>
-
-      <MenuItem
-        title="Risk Manager (Rules Setup)"
-        subtitle="Account, limits, sessions, instruments"
-        href="/settings"
-      />
-
-      <MenuItem
-        title="Risk Pilot (Enforcement)"
-        subtitle="Soft/Hard mode, lockouts, cooldowns"
-        href="/settings"
-      />
-
-      {/* UTILITIES */}
-      <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
-        Utilities
-      </ThemedText>
-
-      <MenuItem
-        title="Export Data"
-        subtitle="CSV / JSON backup"
-        badge="Soon"
-        disabled
-      />
-
-      <MenuItem
-        title="Notifications"
-        subtitle="Session alerts and reminders"
-        badge="Soon"
-        disabled
-      />
-
-      <MenuItem title="Help / FAQ" subtitle="How the app works" badge="Soon" disabled />
-
-      {/* ACCOUNT */}
-      <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
-        Account
-      </ThemedText>
-
-      <MenuItem
-        title="Profile"
-        subtitle="Offline-first profile (cloud later)"
-        badge="Soon"
-        disabled
-      />
-
-      <View style={styles.footer}>
-        <ThemedText type="default" style={styles.footerText}>
-          Tip: Keep tabs clean. Use this menu for rules + controls.
-        </ThemedText>
-
-        <Link href="/" dismissTo style={styles.closeLink}>
-          <ThemedText type="link">Close</ThemedText>
-        </Link>
-      </View>
+          <View style={styles.footerRow}>
+            <Pressable style={styles.footerBtn} onPress={() => router.back()}>
+              <ThemedText type="defaultSemiBold">Close</ThemedText>
+            </Pressable>
+            <Pressable
+              style={[styles.footerBtn, styles.footerBtnPrimary]}
+              onPress={() => router.replace("/")}
+            >
+              <ThemedText type="defaultSemiBold" style={{ color: "#fff" }}>
+                Home
+              </ThemedText>
+            </Pressable>
+          </View>
+        </View>
+      </ScrollView>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 18,
-    gap: 10,
-  },
-  header: {
-    paddingTop: 4,
-    paddingBottom: 8,
-    gap: 6,
-  },
-  headerSubtitle: {
-    opacity: 0.75,
-  },
-  sectionTitle: {
-    marginTop: 10,
-    marginBottom: 6,
-    opacity: 0.8,
-  },
+  container: { flex: 1, padding: 18 },
+  header: { paddingTop: 6, paddingBottom: 10, gap: 6 },
+  headerSubtitle: { opacity: 0.75 },
+
+  scroll: { paddingBottom: 18 },
+
+  sectionTitle: { marginTop: 12, marginBottom: 8, opacity: 0.8 },
+
   item: {
     borderWidth: 1,
     borderColor: "rgba(120,120,120,0.25)",
@@ -177,22 +176,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-  itemPressed: {
-    transform: [{ scale: 0.99 }],
-    opacity: 0.92,
-  },
-  itemDisabled: {
-    opacity: 0.45,
-  },
-  itemTitle: {
-    fontSize: 16,
-  },
-  itemSubtitle: {
-    marginTop: 4,
-    opacity: 0.75,
-    fontSize: 13,
-    lineHeight: 18,
-  },
+  itemPressed: { transform: [{ scale: 0.99 }], opacity: 0.92 },
+  itemDisabled: { opacity: 0.45 },
+
+  itemTitle: { fontSize: 16 },
+  itemSubtitle: { marginTop: 4, opacity: 0.75, fontSize: 13, lineHeight: 18 },
+
   badge: {
     borderWidth: 1,
     borderColor: "rgba(120,120,120,0.35)",
@@ -200,22 +189,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 999,
   },
-  badgeText: {
-    fontSize: 12,
-    opacity: 0.85,
-  },
+  badgeText: { fontSize: 12, opacity: 0.85 },
+
   footer: {
-    marginTop: 12,
-    paddingTop: 10,
+    marginTop: 14,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: "rgba(120,120,120,0.18)",
     gap: 10,
   },
-  footerText: {
-    opacity: 0.7,
-    lineHeight: 18,
+  footerText: { opacity: 0.7, lineHeight: 18 },
+
+  footerRow: { flexDirection: "row", gap: 10 },
+  footerBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(120,120,120,0.28)",
+    alignItems: "center",
   },
-  closeLink: {
-    paddingVertical: 10,
+  footerBtnPrimary: {
+    backgroundColor: "#111",
+    borderColor: "#111",
   },
 });

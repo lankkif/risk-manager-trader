@@ -1,51 +1,45 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Tabs, useRouter } from "expo-router";
+import { Tabs } from "expo-router";
 import React from "react";
-import { Pressable } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function TabLayout() {
-  const router = useRouter();
+  const insets = useSafeAreaInsets();
+
+  // ✅ This prevents Android system nav (back/home bar) from sitting on top of your tabs
+  const bottomPad = Math.max(10, insets.bottom);
+  const tabHeight = 64 + bottomPad;
 
   return (
     <Tabs
       screenOptions={{
-        headerTitleAlign: "center",
-        tabBarActiveTintColor: "#111",
-        tabBarInactiveTintColor: "#777",
+        headerShown: false,
 
-        // ✅ Top-left hamburger -> modal menu (we’ll upgrade modal next)
-        headerLeft: () => (
-          <Pressable
-            onPress={() => router.push("/modal")}
-            style={{ paddingHorizontal: 14, paddingVertical: 6 }}
-            hitSlop={10}
-          >
-            <Ionicons name="menu" size={24} color="#111" />
-          </Pressable>
-        ),
+        tabBarHideOnKeyboard: true,
 
-        // ✅ Top-right profile icon (placeholder for now)
-        headerRight: () => (
-          <Pressable
-            onPress={() => router.push("/modal")}
-            style={{ paddingHorizontal: 14, paddingVertical: 6 }}
-            hitSlop={10}
-          >
-            <Ionicons name="person-circle-outline" size={26} color="#111" />
-          </Pressable>
-        ),
+        // Dark + purple (Option A vibe)
+        tabBarActiveTintColor: "#A78BFA",
+        tabBarInactiveTintColor: "#6B7280",
+        tabBarStyle: {
+          backgroundColor: "#0B0B10",
+          borderTopColor: "rgba(255,255,255,0.10)",
+          height: tabHeight,
+          paddingTop: 8,
+          paddingBottom: bottomPad,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: "700",
+        },
       }}
     >
-      {/* =========================
-          ✅ MAIN TABS (MAX 5)
-          ========================= */}
-
+      {/* ✅ FINAL 5 TABS */}
       <Tabs.Screen
         name="index"
         options={{
           title: "Home",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home-outline" size={size} color={color} />
+            <Ionicons name="home" size={size} color={color} />
           ),
         }}
       />
@@ -53,52 +47,44 @@ export default function TabLayout() {
       <Tabs.Screen
         name="new-trade"
         options={{
-          title: "Log Trade",
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="add-circle" size={34} color={color} />
+          title: "Log",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="add-circle" size={size + 2} color={color} />
           ),
         }}
       />
 
-      {/* Your current "journal" tab is actually a Trades list + filters */}
       <Tabs.Screen
         name="journal"
         options={{
           title: "Trades",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="list-outline" size={size} color={color} />
+            <Ionicons name="list" size={size} color={color} />
           ),
         }}
       />
 
-      {/* Daily closeout = Journal (for now) */}
       <Tabs.Screen
         name="closeout"
         options={{
           title: "Journal",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="book-outline" size={size} color={color} />
+            <Ionicons name="book" size={size} color={color} />
           ),
         }}
       />
 
-      {/* Explore currently contains Strategies + Admin pieces.
-          We will clean it into a pure Strategies screen next. */}
       <Tabs.Screen
         name="explore"
         options={{
           title: "Strategies",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="layers-outline" size={size} color={color} />
+            <Ionicons name="layers" size={size} color={color} />
           ),
         }}
       />
 
-      {/* =========================
-          ✅ HIDDEN ROUTES (still exist, just not tabs)
-          These move into the hamburger menu.
-          ========================= */}
-
+      {/* ✅ Hidden screens (still accessible later via Dashboard buttons / hamburger) */}
       <Tabs.Screen name="plan" options={{ href: null }} />
       <Tabs.Screen name="dashboard" options={{ href: null }} />
       <Tabs.Screen name="settings" options={{ href: null }} />
