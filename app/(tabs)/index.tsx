@@ -13,24 +13,136 @@ function todayKey() {
   return `${y}-${m}-${day}`;
 }
 
-function pct(x: number) {
-  return `${Math.round((x || 0) * 100)}%`;
+function fmtR(n: number) {
+  const v = Number.isFinite(n) ? n : 0;
+  const sign = v > 0 ? "+" : "";
+  return `${sign}${v.toFixed(2)}R`;
 }
 
-function pickNum(obj: any, keys: string[], fallback = 0) {
-  for (const k of keys) {
-    const v = obj?.[k];
-    const n = typeof v === "number" ? v : Number(v);
-    if (Number.isFinite(n)) return n;
-  }
-  return fallback;
+function pct01(x: number) {
+  const v = Number.isFinite(x) ? x : 0;
+  return `${Math.round(v * 100)}%`;
 }
 
 function isAfterHour(hour24: number) {
   return new Date().getHours() >= hour24;
 }
 
-export default function StatusTab() {
+function Pill({
+  text,
+  kind = "neutral",
+}: {
+  text: string;
+  kind?: "neutral" | "good" | "warn" | "bad";
+}) {
+  const bg =
+    kind === "good"
+      ? "#e9fff0"
+      : kind === "warn"
+      ? "#fff6e6"
+      : kind === "bad"
+      ? "#ffe9ee"
+      : "#f3f4f6";
+  const border =
+    kind === "good"
+      ? "#baf2c8"
+      : kind === "warn"
+      ? "#ffd59b"
+      : kind === "bad"
+      ? "#ffbac6"
+      : "#e5e7eb";
+  const color =
+    kind === "good"
+      ? "#0a6a2a"
+      : kind === "warn"
+      ? "#7a4b00"
+      : kind === "bad"
+      ? "#8a1026"
+      : "#111827";
+
+  return (
+    <View
+      style={{
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: border,
+        backgroundColor: bg,
+      }}
+    >
+      <Text style={{ fontWeight: "900", color, fontSize: 12 }}>{text}</Text>
+    </View>
+  );
+}
+
+function StatBox({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+}) {
+  return (
+    <View
+      style={{
+        flex: 1,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: "#eee",
+        borderRadius: 14,
+        backgroundColor: "white",
+        gap: 6,
+      }}
+    >
+      <Text style={{ color: "#666", fontWeight: "800", fontSize: 12 }}>
+        {label}
+      </Text>
+      <Text style={{ fontSize: 18, fontWeight: "900" }}>{value}</Text>
+      {sub ? <Text style={{ color: "#777", fontSize: 12 }}>{sub}</Text> : null}
+    </View>
+  );
+}
+
+function ActionButton({
+  title,
+  subtitle,
+  onPress,
+  kind = "primary",
+}: {
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+  kind?: "primary" | "secondary";
+}) {
+  const bg = kind === "primary" ? "#111" : "white";
+  const borderColor = kind === "primary" ? "#111" : "#ddd";
+  const titleColor = kind === "primary" ? "white" : "#111";
+  const subColor = kind === "primary" ? "#d6d6d6" : "#666";
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        padding: 14,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor,
+        backgroundColor: bg,
+        gap: 6,
+      }}
+    >
+      <Text style={{ color: titleColor, fontWeight: "900", fontSize: 16 }}>
+        {title}
+      </Text>
+      <Text style={{ color: subColor, fontSize: 12 }}>{subtitle}</Text>
+    </Pressable>
+  );
+}
+
+export default function HomeDashboardTab() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
@@ -41,46 +153,25 @@ export default function StatusTab() {
   const [tradeCount, setTradeCount] = useState(0);
   const [totalR, setTotalR] = useState(0);
   const [winRate, setWinRate] = useState(0);
+  const [wins, setWins] = useState(0);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const key = todayKey();
-      const [g, statsRaw] = await Promise.all([
-        evaluateGate(),
-        getTradeStatsForDay(key),
-      ]);
-
+      const [g, stats] = await Promise.all([evaluateGate(), getTradeStatsForDay(key)]);
       setGate(g);
 
-      // Make this resilient to whatever your TradeStats shape is:
-      const s: any = statsRaw ?? {};
+      // permissions.ts guarantees these exist (stable)
+      setTradeCount(g?.stats?.tradeCount ?? 0);
+      setTotalR(g?.stats?.sumR ?? 0);
 
-      const count = pickNum(s, ["tradeCount", "count", "trades", "nTrades"], 0);
-
-      // R total could be named many things depending on earlier versions
-      let rTotal = pickNum(
-        s,
-        ["totalR", "sumR", "netR", "total_r", "rTotal"],
-        NaN
-      );
-
-      // If not present, try compute from avgR * count
-      if (!Number.isFinite(rTotal)) {
-        const avgR = pickNum(s, ["avgR", "averageR", "meanR"], 0);
-        rTotal = avgR * count;
-      }
-
-      // Win rate could be direct, or computed from wins / count
-      let wr = pickNum(s, ["winRate", "wr", "win_rate"], NaN);
-      if (!Number.isFinite(wr)) {
-        const wins = pickNum(s, ["wins", "winCount"], 0);
-        wr = count > 0 ? wins / count : 0;
-      }
-
-      setTradeCount(count);
-      setTotalR(rTotal);
-      setWinRate(wr);
+      // day stats gives wins/winRate reliably (even if gate only tracks streaks)
+      const t = (stats as any) ?? {};
+      const c = typeof t.tradeCount === "number" ? t.tradeCount : 0;
+      const w = typeof t.wins === "number" ? t.wins : 0;
+      setWins(w);
+      setWinRate(c > 0 ? w / c : 0);
     } finally {
       setLoading(false);
     }
@@ -92,9 +183,19 @@ export default function StatusTab() {
     }, [refresh])
   );
 
+  const isReal = gate?.mode === "real";
   const locked = useMemo(() => {
     if (!gate) return false;
     return gate.mode === "real" && !gate.canTrade && !gate.overrideActive;
+  }, [gate]);
+
+  const planMissing = useMemo(() => {
+    if (!gate) return false;
+    return (
+      gate.mode === "real" &&
+      Array.isArray(gate.softWarnings) &&
+      gate.softWarnings.includes("PLAN_MISSING")
+    );
   }, [gate]);
 
   const closeoutMissing = useMemo(() => {
@@ -106,202 +207,263 @@ export default function StatusTab() {
     );
   }, [gate]);
 
-  // ✅ Step 17: Closeout auto-nudge (soft reminder only)
+  // Closeout soft nudge after 20:00 if you traded today
   const showCloseoutNudge = useMemo(() => {
     if (!gate) return false;
     if (gate.mode !== "real") return false;
     if (!closeoutMissing) return false;
     if (tradeCount <= 0) return false;
-    // After 20:00 local time
     return isAfterHour(20);
   }, [gate, closeoutMissing, tradeCount]);
 
+  const tradesRemaining = useMemo(() => {
+    const max = gate?.settings?.maxTradesPerDay ?? 0;
+    if (!max || max <= 0) return 0;
+    return Math.max(0, max - tradeCount);
+  }, [gate, tradeCount]);
+
+  const lossBufferRemainingR = useMemo(() => {
+    // lock triggers when sumR <= -maxDailyLossR
+    const maxLoss = gate?.settings?.maxDailyLossR ?? 0;
+    const buffer = maxLoss + totalR;
+    return Math.max(0, buffer);
+  }, [gate, totalR]);
+
+  const consecLossesRemaining = useMemo(() => {
+    const max = gate?.settings?.maxConsecutiveLosses ?? 0;
+    const cur = gate?.stats?.consecutiveLosses ?? 0;
+    if (!max || max <= 0) return 0;
+    return Math.max(0, max - cur);
+  }, [gate]);
+
+  const gatePills = useMemo(() => {
+    if (!gate) return [];
+    const pills: { text: string; kind: "neutral" | "good" | "warn" | "bad" }[] = [];
+
+    if (gate.mode === "demo") pills.push({ text: "DEMO MODE", kind: "neutral" });
+    if (gate.mode === "real") pills.push({ text: "REAL MODE", kind: "neutral" });
+
+    if (gate.overrideActive) pills.push({ text: "OVERRIDE ACTIVE", kind: "warn" });
+
+    if (gate.mode === "real") {
+      if (locked) pills.push({ text: "LOCKED", kind: "bad" });
+      else pills.push({ text: "UNLOCKED", kind: "good" });
+    } else {
+      pills.push({ text: "GATE BYPASSED", kind: "good" });
+    }
+
+    if (planMissing) pills.push({ text: "PLAN MISSING", kind: "warn" });
+    if (closeoutMissing) pills.push({ text: "CLOSEOUT MISSING", kind: "warn" });
+
+    return pills;
+  }, [gate, locked, planMissing, closeoutMissing]);
+
   if (loading || !gate) {
     return (
-      <View style={{ flex: 1, padding: 16, backgroundColor: "white" }}>
-        <Text style={{ fontSize: 20, fontWeight: "900" }}>Loading…</Text>
+      <View style={{ flex: 1, backgroundColor: "white", padding: 16 }}>
+        <Text style={{ fontSize: 22, fontWeight: "900" }}>Dashboard</Text>
+        <Text style={{ marginTop: 10, color: "#666" }}>Loading…</Text>
       </View>
     );
   }
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: "white" }}
-      contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}
-    >
-      <Text style={{ fontSize: 28, fontWeight: "900" }}>Status</Text>
-
-      {/* Gate Status Card */}
-      <View
-        style={{
-          padding: 14,
-          borderWidth: 1,
-          borderRadius: 14,
-          borderColor:
-            gate.mode === "demo"
-              ? "#b7d7ff"
-              : gate.overrideActive
-              ? "#ffd38a"
-              : locked
-              ? "#ffb3b3"
-              : "#b7f7c1",
-          backgroundColor:
-            gate.mode === "demo"
-              ? "#f2f8ff"
-              : gate.overrideActive
-              ? "#fff7ea"
-              : locked
-              ? "#fff1f1"
-              : "#f2fff4",
-          gap: 6,
-        }}
+    <View style={{ flex: 1, backgroundColor: "white" }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 14 }}
       >
-        <Text style={{ fontWeight: "900" }}>
-          {gate.mode === "demo"
-            ? "🧪 DEMO MODE"
-            : gate.overrideActive
-            ? "⚠ REAL MODE: OVERRIDE ACTIVE"
-            : locked
-            ? "⛔ REAL MODE: LOCKED"
-            : "✅ REAL MODE: ALLOWED"}
-        </Text>
-
-        {locked ? (
-          <View style={{ gap: 4 }}>
-            <Text style={{ color: "#666" }}>
-              You’re locked until you complete requirements:
-            </Text>
-            {gate.reasons.slice(0, 3).map((r: string, i: number) => (
-              <Text key={`${i}-${r}`}>• {r}</Text>
-            ))}
-          </View>
-        ) : (
+        {/* HEADER */}
+        <View style={{ gap: 6 }}>
+          <Text style={{ fontSize: 26, fontWeight: "900" }}>Dashboard</Text>
           <Text style={{ color: "#666" }}>
-            Today: trade clean, log everything, stop when rules say stop.
+            Command Center • {todayKey()}
           </Text>
-        )}
-      </View>
+        </View>
 
-      {/* ✅ Step 17: Closeout reminder banner (soft nudge, no lockout) */}
-      {showCloseoutNudge ? (
-        <View
-          style={{
-            padding: 14,
-            borderWidth: 1,
-            borderRadius: 14,
-            borderColor: "#ffd38a",
-            backgroundColor: "#fff7ea",
-            gap: 8,
-          }}
-        >
-          <Text style={{ fontWeight: "900" }}>🟡 Closeout reminder</Text>
-          <Text style={{ color: "#666" }}>
-            You traded today but haven’t completed Closeout. Do it now to lock in
-            learning and protect discipline.
-          </Text>
-          <Pressable
-            // ✅ FIX: typed route (no "/(tabs)/")
-            onPress={() => router.push("/closeout")}
+        {/* STATUS STRIP */}
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {gatePills.map((p, idx) => (
+            <Pill key={`${p.text}-${idx}`} text={p.text} kind={p.kind} />
+          ))}
+        </View>
+
+        {/* LOCK REASONS */}
+        {isReal && locked ? (
+          <View
             style={{
-              backgroundColor: "#111",
               padding: 12,
-              borderRadius: 12,
-              alignItems: "center",
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: "#ffbac6",
+              backgroundColor: "#fff5f7",
+              gap: 8,
             }}
           >
-            <Text style={{ color: "white", fontWeight: "900" }}>
-              Go to Closeout
+            <Text style={{ fontWeight: "900" }}>Why you’re locked</Text>
+            {(gate.reasons ?? []).length === 0 ? (
+              <Text style={{ color: "#8a1026" }}>Locked by rules.</Text>
+            ) : (
+              (gate.reasons ?? []).map((r, i) => (
+                <Text key={i} style={{ color: "#8a1026" }}>
+                  • {r}
+                </Text>
+              ))
+            )}
+            <Text style={{ color: "#666", marginTop: 4, fontSize: 12 }}>
+              If you *must* trade, use Override (Rules tab) — but it will be recorded.
             </Text>
-          </Pressable>
-        </View>
-      ) : null}
-
-      {/* Today Card */}
-      <View
-        style={{
-          padding: 14,
-          borderWidth: 1,
-          borderColor: "#eee",
-          borderRadius: 14,
-          gap: 8,
-        }}
-      >
-        <Text style={{ fontWeight: "900", fontSize: 16 }}>Today</Text>
-        <Text>
-          Trades: <Text style={{ fontWeight: "900" }}>{tradeCount}</Text>
-        </Text>
-        <Text>
-          Total R: <Text style={{ fontWeight: "900" }}>{totalR.toFixed(2)}</Text>
-        </Text>
-        <Text>
-          Win rate: <Text style={{ fontWeight: "900" }}>{pct(winRate)}</Text>
-        </Text>
-
-        {closeoutMissing && gate.mode === "real" ? (
-          <Text style={{ color: "#b26a00", fontWeight: "900" }}>
-            ⚠ Closeout missing (soft warning)
-          </Text>
+          </View>
         ) : null}
-      </View>
 
-      {/* Actions */}
-      <Pressable
-        // ✅ FIX: typed route (no "/(tabs)/")
-        onPress={() => router.push("/new-trade")}
-        style={{
-          backgroundColor: locked ? "#ddd" : "#111",
-          padding: 14,
-          borderRadius: 12,
-          alignItems: "center",
-        }}
-        disabled={locked}
-      >
-        <Text style={{ color: "white", fontWeight: "900" }}>
-          {locked ? "Locked" : "Log a Trade"}
-        </Text>
-      </Pressable>
+        {/* SOFT NUDGE */}
+        {showCloseoutNudge ? (
+          <View
+            style={{
+              padding: 12,
+              borderWidth: 1,
+              borderColor: "#ffd59b",
+              backgroundColor: "#fff7ea",
+              borderRadius: 14,
+              gap: 6,
+            }}
+          >
+            <Text style={{ fontWeight: "900" }}>Closeout reminder</Text>
+            <Text style={{ color: "#7a4b00" }}>
+              You traded today, but yesterday’s Closeout is missing. Do it now to
+              stay consistent.
+            </Text>
+            <Pressable
+              onPress={() => router.push("/closeout")}
+              style={{
+                alignSelf: "flex-start",
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 12,
+                backgroundColor: "#111",
+                marginTop: 6,
+              }}
+            >
+              <Text style={{ color: "white", fontWeight: "900" }}>Open Closeout</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
-      {/* ✅ Correct route: open Closeout tab */}
-      <Pressable
-        // ✅ FIX: typed route (no "/(tabs)/")
-        onPress={() => router.push("/closeout")}
-        style={{
-          borderWidth: 1,
-          borderColor: "#ddd",
-          padding: 14,
-          borderRadius: 12,
-          alignItems: "center",
-        }}
-      >
-        <Text style={{ fontWeight: "900" }}>Daily Closeout</Text>
-      </Pressable>
+        {/* KPI ROW */}
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <StatBox
+            label="Trades Remaining"
+            value={
+              gate.mode === "demo"
+                ? "∞"
+                : `${tradesRemaining}/${gate.settings.maxTradesPerDay}`
+            }
+            sub={gate.mode === "demo" ? "Demo bypass" : `Used: ${tradeCount}`}
+          />
+          <StatBox
+            label="Daily R (Net)"
+            value={fmtR(totalR)}
+            sub={`Win rate: ${pct01(winRate)} (${wins}/${tradeCount || 0})`}
+          />
+        </View>
 
-      <Pressable
-        // ✅ FIX: typed route (no "/(tabs)/")
-        onPress={() => router.push("/journal")}
-        style={{
-          borderWidth: 1,
-          borderColor: "#ddd",
-          padding: 14,
-          borderRadius: 12,
-          alignItems: "center",
-        }}
-      >
-        <Text style={{ fontWeight: "900" }}>Open Journal</Text>
-      </Pressable>
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <StatBox
+            label="Loss Buffer Remaining"
+            value={gate.mode === "demo" ? "—" : `${lossBufferRemainingR.toFixed(2)}R`}
+            sub={
+              gate.mode === "demo"
+                ? "Only tracked in Real mode"
+                : `Daily limit: ${gate.settings.maxDailyLossR}R`
+            }
+          />
+          <StatBox
+            label="Losses Remaining (Streak)"
+            value={gate.mode === "demo" ? "—" : String(consecLossesRemaining)}
+            sub={
+              gate.mode === "demo"
+                ? "Only tracked in Real mode"
+                : `Current: ${gate.stats.consecutiveLosses}/${gate.settings.maxConsecutiveLosses}`
+            }
+          />
+        </View>
 
-      <Pressable
-        onPress={refresh}
-        style={{
-          borderWidth: 1,
-          borderColor: "#ddd",
-          padding: 14,
-          borderRadius: 12,
-          alignItems: "center",
-        }}
-      >
-        <Text style={{ fontWeight: "900" }}>Refresh</Text>
-      </Pressable>
-    </ScrollView>
+        {/* QUICK ACTIONS */}
+        <View style={{ gap: 10 }}>
+          <Text style={{ fontSize: 16, fontWeight: "900" }}>Quick Actions</Text>
+
+          <View style={{ gap: 10 }}>
+            <ActionButton
+              title="Start Daily Plan"
+              subtitle="Plan → then trade like a machine"
+              onPress={() => router.push("/plan")}
+              kind="primary"
+            />
+            <ActionButton
+              title="Log Trade"
+              subtitle="Fast logging (R + strategy + notes)"
+              onPress={() => router.push("/new-trade")}
+              kind="primary"
+            />
+
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <ActionButton
+                  title="Close Day"
+                  subtitle="Journal + reflection"
+                  onPress={() => router.push("/closeout")}
+                  kind="secondary"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <ActionButton
+                  title="Rules & Limits"
+                  subtitle="Gate / override / rules"
+                  onPress={() => router.push("/settings")}
+                  kind="secondary"
+                />
+              </View>
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <ActionButton
+                  title="Trades"
+                  subtitle="View logged trades"
+                  onPress={() => router.push("/journal")}
+                  kind="secondary"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <ActionButton
+                  title="Strategies"
+                  subtitle="Your playbook"
+                  onPress={() => router.push("/explore")}
+                  kind="secondary"
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* PHASE 2+ PLACEHOLDER */}
+        <View
+          style={{
+            padding: 12,
+            borderWidth: 1,
+            borderColor: "#eee",
+            borderRadius: 14,
+            backgroundColor: "#fafafa",
+            gap: 6,
+          }}
+        >
+          <Text style={{ fontWeight: "900" }}>Coming next (Phase 2)</Text>
+          <Text style={{ color: "#666" }}>
+            Real Risk Manager: account profile, daily $ budget remaining, prop target
+            bar, position sizing calculator, and session window enforcement.
+          </Text>
+        </View>
+      </ScrollView>
+    </View>
   );
 }

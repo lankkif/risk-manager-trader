@@ -13,7 +13,7 @@ export default function TabLayout() {
         tabBarActiveTintColor: "#111",
         tabBarInactiveTintColor: "#777",
 
-        // ✅ Top-left Hamburger (Drawer/Menu placeholder)
+        // ✅ Top-left hamburger -> modal menu (we’ll upgrade modal next)
         headerLeft: () => (
           <Pressable
             onPress={() => router.push("/modal")}
@@ -24,7 +24,7 @@ export default function TabLayout() {
           </Pressable>
         ),
 
-        // ✅ Top-right Profile (placeholder -> modal for now)
+        // ✅ Top-right profile icon (placeholder for now)
         headerRight: () => (
           <Pressable
             onPress={() => router.push("/modal")}
@@ -50,7 +50,6 @@ export default function TabLayout() {
         }}
       />
 
-      {/* Center Action */}
       <Tabs.Screen
         name="new-trade"
         options={{
@@ -61,7 +60,7 @@ export default function TabLayout() {
         }}
       />
 
-      {/* Your current journal screen is actually the Trade Log list */}
+      {/* Your current "journal" tab is actually a Trades list + filters */}
       <Tabs.Screen
         name="journal"
         options={{
@@ -72,7 +71,7 @@ export default function TabLayout() {
         }}
       />
 
-      {/* Temporarily using Closeout as Journal (daily reflection) */}
+      {/* Daily closeout = Journal (for now) */}
       <Tabs.Screen
         name="closeout"
         options={{
@@ -83,7 +82,8 @@ export default function TabLayout() {
         }}
       />
 
-      {/* Your explore tab is currently Strategy Manager (we rename it for now) */}
+      {/* Explore currently contains Strategies + Admin pieces.
+          We will clean it into a pure Strategies screen next. */}
       <Tabs.Screen
         name="explore"
         options={{
@@ -95,9 +95,8 @@ export default function TabLayout() {
       />
 
       {/* =========================
-          ✅ HIDDEN ROUTES (still accessible by router.push)
-          We hide these to keep the tab bar clean.
-          Later they move into the hamburger drawer.
+          ✅ HIDDEN ROUTES (still exist, just not tabs)
+          These move into the hamburger menu.
           ========================= */}
 
       <Tabs.Screen name="plan" options={{ href: null }} />
